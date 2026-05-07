@@ -12,9 +12,17 @@ import subprocess
 import sys
 import time
 import re
+import io
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox
+
+try:
+    from PIL import Image, ImageOps
+except ImportError:
+    Image = None
+    ImageOps = None
 
 # ── yt-dlp import ────────────────────────────────────────────────────────────
 try:
@@ -32,6 +40,7 @@ APP_NAME     = "MediaFlow Pro"
 VERSION      = "2.1"
 CONFIG_FILE  = Path.home() / ".ytflow2_config.json"
 HISTORY_FILE = Path.home() / ".ytflow2_history.json"
+THUMBNAIL_SIZE = (128, 72)
 
 DEFAULT_CONFIG = {
     "theme":       "dark",
@@ -109,6 +118,112 @@ def save_history(h):
         pass
 
 
+def clean_error_text(msg):
+    msg = str(msg).strip()
+    msg = re.sub(r"\x1b\[[0-9;]*m", "", msg)
+    msg = re.sub(r"^ERROR:\s*", "", msg, flags=re.IGNORECASE)
+    msg = re.sub(r"\s+", " ", msg)
+    return msg or "The downloader could not complete this request."
+
+
+def classify_error(msg):
+    lower = msg.lower()
+    if "errno 22" in lower or "invalid argument" in lower or "filename" in lower:
+        return (
+            "Windows could not create the output file",
+            "The media title contains characters that are not valid in a Windows filename. "
+            "MediaFlow now uses safer filenames; try the download again.",
+            ["Retry the download", "Choose a shorter save folder path", "Update yt-dlp if the issue continues"],
+        )
+    if "unsupported url" in lower or "no suitable extractor" in lower:
+        return (
+            "This link is not supported",
+            "yt-dlp does not have an extractor for this URL, or the page is not a direct media link.",
+            ["Open the link in your browser and copy the media post URL", "Check that the post is public"],
+        )
+    if "private" in lower or "login" in lower or "cookies" in lower or "permission" in lower:
+        return (
+            "This media needs access permission",
+            "The site is asking for a logged-in session or the link is private.",
+            ["In Settings, select your browser under Use Browser Cookies", "Or provide a cookies.txt file", "Confirm the link opens in your browser"],
+        )
+    if "not a video" in lower or "no video" in lower or "requested format is not available" in lower:
+        return (
+            "No downloadable video was found",
+            "The page loaded, but yt-dlp could not find a media stream matching your selected options.",
+            ["Try Audio mode if the source is audio-only", "Try Best Available", "Confirm the URL points to a playable media page"],
+        )
+    if "ffmpeg" in lower:
+        return (
+            "FFmpeg is missing or unavailable",
+            "FFmpeg is required for merging streams, extracting audio, and converting formats.",
+            ["Install FFmpeg and add it to PATH", "Or set the FFmpeg folder in Settings"],
+        )
+    if "network" in lower or "timed out" in lower or "connection" in lower:
+        return (
+            "Network problem",
+            "The site did not respond reliably while MediaFlow was fetching the media.",
+            ["Check your internet connection", "Retry in a moment", "Open the link in your browser"],
+        )
+    return (
+        "Download failed",
+        "MediaFlow could not process this link.",
+        ["Check the URL", "Try cookies for restricted sites", "Try another format or quality"],
+    )
+
+
+class ErrorDialog(ctk.CTkToplevel):
+    def __init__(self, parent, title, message, details="", suggestions=None):
+        super().__init__(parent)
+        self.title(title)
+        self.configure(fg_color=BG_ROOT)
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+
+        suggestions = suggestions or []
+
+        card = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=10)
+        card.grid(row=0, column=0, sticky="nsew", padx=18, pady=18)
+        card.grid_columnconfigure(1, weight=1)
+
+        icon = ctk.CTkFrame(card, width=42, height=42, fg_color="#3A1F2B", corner_radius=21)
+        icon.grid(row=0, column=0, padx=(16, 12), pady=(16, 8), sticky="n")
+        icon.grid_propagate(False)
+        ctk.CTkLabel(icon, text="!", font=ctk.CTkFont("Segoe UI", 20, weight="bold"),
+                     text_color=ERROR).place(relx=.5, rely=.48, anchor="center")
+
+        ctk.CTkLabel(card, text=title, font=ctk.CTkFont("Segoe UI", 17, weight="bold"),
+                     text_color=TXT_PRI, anchor="w").grid(row=0, column=1, padx=(0, 18), pady=(16, 4), sticky="ew")
+        ctk.CTkLabel(card, text=message, font=ctk.CTkFont("Segoe UI", 12),
+                     text_color=TXT_SEC, anchor="w", justify="left", wraplength=440
+                     ).grid(row=1, column=1, padx=(0, 18), pady=(0, 10), sticky="ew")
+
+        if suggestions:
+            tips = "\n".join(f"- {tip}" for tip in suggestions)
+            ctk.CTkLabel(card, text=tips, font=ctk.CTkFont("Segoe UI", 11),
+                         text_color=TXT_SEC, anchor="w", justify="left", wraplength=440
+                         ).grid(row=2, column=1, padx=(0, 18), pady=(0, 12), sticky="ew")
+
+        if details:
+            detail_box = ctk.CTkTextbox(card, height=78, fg_color=BG_INPUT,
+                                        text_color=TXT_DIM, border_color=BORDER,
+                                        border_width=1, corner_radius=8, wrap="word")
+            detail_box.grid(row=3, column=0, columnspan=2, sticky="ew", padx=16, pady=(0, 12))
+            detail_box.insert("1.0", details)
+            detail_box.configure(state="disabled")
+
+        ctk.CTkButton(card, text="OK", width=96, height=34, fg_color=ACCENT,
+                      hover_color="#1D65CA", command=self.destroy
+                      ).grid(row=4, column=0, columnspan=2, padx=16, pady=(0, 16), sticky="e")
+
+        self.update_idletasks()
+        w, h = 560, self.winfo_reqheight()
+        x = parent.winfo_rootx() + max(0, (parent.winfo_width() - w) // 2)
+        y = parent.winfo_rooty() + max(0, (parent.winfo_height() - h) // 2)
+        self.geometry(f"{w}x{h}+{x}+{y}")
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  yt-dlp helpers
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -146,9 +261,13 @@ def build_ydl_opts(cfg, out_dir, ext, quality, is_audio, progress_hook,
                    playlist=False):
     os.makedirs(out_dir, exist_ok=True)
     if playlist:
-        outtmpl = os.path.join(out_dir, "%(playlist_title)s", "%(playlist_index)03d - %(title)s.%(ext)s")
+        outtmpl = os.path.join(
+            out_dir,
+            "%(playlist_title).80B",
+            "%(playlist_index)03d - %(title).100B [%(id)s].%(ext)s",
+        )
     else:
-        outtmpl = os.path.join(out_dir, "%(title)s.%(ext)s")
+        outtmpl = os.path.join(out_dir, "%(title).120B [%(id)s].%(ext)s")
     postprocessors = []
 
     if is_audio:
@@ -217,6 +336,8 @@ def build_ydl_opts(cfg, out_dir, ext, quality, is_audio, progress_hook,
         "retries":         5,
         "fragment_retries": 5,
         "windowsfilenames": True,
+        "restrictfilenames": True,
+        "trim_file_name": 160,
     }
     ffmpeg = cfg.get("ffmpeg_path", "").strip()
     if ffmpeg:
@@ -238,11 +359,26 @@ class MediaFlowApp(ctk.CTk):
         self.configure(fg_color=BG_ROOT)
 
         self.title(f"{APP_NAME}  ·  v{VERSION}")
-        self.geometry("1080x720")
-        self.minsize(900, 620)
+        self._set_initial_geometry()
 
         self._build_ui()
         self._nav("Download")
+
+    def _set_initial_geometry(self):
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        usable_w = max(760, screen_w - 80)
+        usable_h = max(560, screen_h - 80)
+        width = min(max(1100, int(screen_w * 0.78)), usable_w)
+        height = min(max(720, int(screen_h * 0.82)), usable_h)
+        if screen_w < 900:
+            width = max(640, screen_w - 24)
+        if screen_h < 700:
+            height = max(520, screen_h - 60)
+        x = max(0, (screen_w - width) // 2)
+        y = max(0, (screen_h - height) // 2)
+        self.geometry(f"{width}x{height}+{x}+{y}")
+        self.minsize(min(760, width), min(560, height))
 
     def _build_ui(self):
         self.grid_columnconfigure(1, weight=1)
@@ -375,8 +511,11 @@ class DownloadFrame(ctk.CTkFrame):
         # Initialize thread state BEFORE building UI (button callbacks reference these)
         self._download_thread = None   # <-- BUG FIX
         self._cancel_flag     = threading.Event()
+        self._thumb_image     = None
+        self._compact_layout  = None
 
         self._build()
+        self.bind("<Configure>", self._on_resize)
 
     def _build(self):
         self.grid_columnconfigure(0, weight=1)
@@ -399,6 +538,7 @@ class DownloadFrame(ctk.CTkFrame):
         url_card = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=10)
         url_card.grid(row=1, column=0, sticky="ew", padx=24, pady=(16, 6))
         url_card.grid_columnconfigure(0, weight=1)
+        self._source_hint = None
 
         ctk.CTkLabel(url_card, text="MEDIA / PLAYLIST URL",
                      font=ctk.CTkFont("Segoe UI", 9, weight="bold"),
@@ -435,26 +575,29 @@ class DownloadFrame(ctk.CTkFrame):
             command=self._fetch_info)
         self._fetch_btn.grid(row=0, column=2)
 
-        ctk.CTkLabel(
+        self._source_hint = ctk.CTkLabel(
             url_card,
             text="Supported by yt-dlp: " + ", ".join(SUPPORTED_SOURCE_HINTS) + ", and many more",
             font=ctk.CTkFont("Segoe UI", 10),
             text_color=TXT_DIM,
             wraplength=760,
             justify="left",
-        ).grid(row=2, column=0, padx=14, pady=(0,12), sticky="w")
+        )
+        self._source_hint.grid(row=2, column=0, padx=14, pady=(0,12), sticky="w")
 
         # ── Info card ────────────────────────────────────────────────────────
         info_card = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=10)
         info_card.grid(row=2, column=0, sticky="ew", padx=24, pady=6)
         info_card.grid_columnconfigure(1, weight=1)
 
-        thumb_box = ctk.CTkFrame(info_card, width=96, height=60,
+        self._thumb_box = ctk.CTkFrame(info_card, width=THUMBNAIL_SIZE[0], height=THUMBNAIL_SIZE[1],
                                  fg_color=BG_INPUT, corner_radius=6)
-        thumb_box.grid(row=0, column=0, rowspan=2, padx=14, pady=12)
-        thumb_box.grid_propagate(False)
-        ctk.CTkLabel(thumb_box, text="▶", font=ctk.CTkFont("Segoe UI", 24),
-                     text_color=TXT_DIM).place(relx=.5, rely=.5, anchor="center")
+        self._thumb_box.grid(row=0, column=0, rowspan=2, padx=14, pady=12)
+        self._thumb_box.grid_propagate(False)
+        self._thumb_label = ctk.CTkLabel(self._thumb_box, text="▶",
+                                         font=ctk.CTkFont("Segoe UI", 24),
+                                         text_color=TXT_DIM)
+        self._thumb_label.place(relx=.5, rely=.5, anchor="center")
 
         self._info_title = ctk.CTkLabel(
             info_card, text="Paste a link and click Analyse to load media info",
@@ -471,27 +614,30 @@ class DownloadFrame(ctk.CTkFrame):
         # ── Options card ─────────────────────────────────────────────────────
         opts_card = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=10)
         opts_card.grid(row=3, column=0, sticky="ew", padx=24, pady=6)
+        opts_card.grid_columnconfigure(0, weight=1)
+        opts_card.grid_columnconfigure(1, weight=1)
+        self._opts_card = opts_card
 
-        left_opts = ctk.CTkFrame(opts_card, fg_color="transparent")
-        left_opts.grid(row=0, column=0, padx=14, pady=12, sticky="w")
+        self._left_opts = ctk.CTkFrame(opts_card, fg_color="transparent")
+        self._left_opts.grid(row=0, column=0, padx=14, pady=12, sticky="w")
 
-        right_opts = ctk.CTkFrame(opts_card, fg_color="transparent")
-        right_opts.grid(row=0, column=1, padx=14, pady=12, sticky="e")
+        self._right_opts = ctk.CTkFrame(opts_card, fg_color="transparent")
+        self._right_opts.grid(row=0, column=1, padx=14, pady=12, sticky="e")
 
         # Media type
-        ctk.CTkLabel(left_opts, text="MEDIA TYPE",
+        ctk.CTkLabel(self._left_opts, text="MEDIA TYPE",
                      font=ctk.CTkFont("Segoe UI", 9, weight="bold"),
                      text_color=TXT_DIM).grid(row=0, column=0, sticky="w", padx=(0,30))
-        ctk.CTkLabel(left_opts, text="FORMAT",
+        ctk.CTkLabel(self._left_opts, text="FORMAT",
                      font=ctk.CTkFont("Segoe UI", 9, weight="bold"),
                      text_color=TXT_DIM).grid(row=0, column=1, sticky="w", padx=(0,30))
-        ctk.CTkLabel(left_opts, text="QUALITY",
+        ctk.CTkLabel(self._left_opts, text="QUALITY",
                      font=ctk.CTkFont("Segoe UI", 9, weight="bold"),
                      text_color=TXT_DIM).grid(row=0, column=2, sticky="w")
 
         self._type_var = ctk.StringVar(value="Video")
         self._type_seg = ctk.CTkSegmentedButton(
-            left_opts, values=["Video", "Audio"],
+            self._left_opts, values=["Video", "Audio"],
             variable=self._type_var,
             font=ctk.CTkFont("Segoe UI", 12),
             command=self._on_type_change)
@@ -499,7 +645,7 @@ class DownloadFrame(ctk.CTkFrame):
 
         self._fmt_var = ctk.StringVar(value="mp4")
         self._fmt_menu = ctk.CTkOptionMenu(
-            left_opts, variable=self._fmt_var,
+            self._left_opts, variable=self._fmt_var,
             values=VIDEO_FORMATS, width=100,
             font=ctk.CTkFont("Segoe UI", 12),
             fg_color=BG_INPUT, button_color=BG_INPUT,
@@ -509,7 +655,7 @@ class DownloadFrame(ctk.CTkFrame):
 
         self._qual_var = ctk.StringVar(value="Best Available")
         self._qual_menu = ctk.CTkOptionMenu(
-            left_opts, variable=self._qual_var,
+            self._left_opts, variable=self._qual_var,
             values=VIDEO_QUALITIES, width=160,
             font=ctk.CTkFont("Segoe UI", 12),
             fg_color=BG_INPUT, button_color=BG_INPUT,
@@ -518,7 +664,7 @@ class DownloadFrame(ctk.CTkFrame):
         self._qual_menu.grid(row=1, column=2, pady=(6,0), sticky="w")
 
         # Checkboxes
-        ctk.CTkLabel(right_opts, text="OPTIONS",
+        ctk.CTkLabel(self._right_opts, text="OPTIONS",
                      font=ctk.CTkFont("Segoe UI", 9, weight="bold"),
                      text_color=TXT_DIM).grid(row=0, column=0, columnspan=2, sticky="w")
 
@@ -532,16 +678,16 @@ class DownloadFrame(ctk.CTkFrame):
         self._thumb_var    = ctk.BooleanVar(value=False)
         self._sponsor_var  = ctk.BooleanVar(value=False)
 
-        ctk.CTkCheckBox(right_opts, text="Full Playlist",
+        ctk.CTkCheckBox(self._right_opts, text="Full Playlist",
                         variable=self._playlist_var, **chk_kw
                         ).grid(row=1, column=0, padx=(0,20), pady=(6,0), sticky="w")
-        ctk.CTkCheckBox(right_opts, text="Subtitles",
+        ctk.CTkCheckBox(self._right_opts, text="Subtitles",
                         variable=self._subs_var, **chk_kw
                         ).grid(row=1, column=1, pady=(6,0), sticky="w")
-        ctk.CTkCheckBox(right_opts, text="Embed Thumbnail",
+        ctk.CTkCheckBox(self._right_opts, text="Embed Thumbnail",
                         variable=self._thumb_var, **chk_kw
                         ).grid(row=2, column=0, padx=(0,20), pady=(6,0), sticky="w")
-        ctk.CTkCheckBox(right_opts, text="SponsorBlock",
+        ctk.CTkCheckBox(self._right_opts, text="SponsorBlock",
                         variable=self._sponsor_var, **chk_kw
                         ).grid(row=2, column=1, pady=(6,0), sticky="w")
 
@@ -579,19 +725,19 @@ class DownloadFrame(ctk.CTkFrame):
         self._progress.set(0)
 
         # ── Action buttons ───────────────────────────────────────────────────
-        act_row = ctk.CTkFrame(self, fg_color="transparent")
-        act_row.grid(row=5, column=0, sticky="ew", padx=24, pady=(8,10))
-        act_row.grid_columnconfigure(0, weight=1)
+        self._act_row = ctk.CTkFrame(self, fg_color="transparent")
+        self._act_row.grid(row=5, column=0, sticky="ew", padx=24, pady=(8,10))
+        self._act_row.grid_columnconfigure(0, weight=1)
 
         self._dl_btn = ctk.CTkButton(
-            act_row, text="  ⬇   Start Download  ", height=48,
+            self._act_row, text="  ⬇   Start Download  ", height=48,
             font=ctk.CTkFont("Segoe UI", 14, weight="bold"),
             fg_color=ACCENT, hover_color="#1D65CA", corner_radius=10,
             command=self._start_download)
         self._dl_btn.grid(row=0, column=0, sticky="ew", padx=(0,8))
 
         self._cancel_btn = ctk.CTkButton(
-            act_row, text="✕  Cancel", width=110, height=48,
+            self._act_row, text="✕  Cancel", width=110, height=48,
             font=ctk.CTkFont("Segoe UI", 12),
             fg_color=BG_CARD, hover_color="#3A2020",
             text_color=ERROR, border_color=ERROR, border_width=1,
@@ -600,7 +746,7 @@ class DownloadFrame(ctk.CTkFrame):
         self._cancel_btn.grid(row=0, column=1, padx=(0,8))
 
         self._folder_btn = ctk.CTkButton(
-            act_row, text="📁  Open Folder", width=140, height=48,
+            self._act_row, text="📁  Open Folder", width=140, height=48,
             font=ctk.CTkFont("Segoe UI", 12),
             fg_color=BG_CARD, hover_color=BORDER,
             text_color=TXT_SEC, border_color=BORDER, border_width=1,
@@ -626,6 +772,43 @@ class DownloadFrame(ctk.CTkFrame):
             border_color=BORDER, border_width=1,
             corner_radius=8, wrap="word", state="disabled")
         self._log.grid(row=7, column=0, sticky="nsew", padx=24, pady=(4,16))
+
+    def _on_resize(self, event):
+        if event.widget is not self:
+            return
+        width = max(event.width, 1)
+        compact = width < 860
+        if compact != self._compact_layout:
+            self._apply_layout(compact)
+            self._compact_layout = compact
+
+        content_width = max(280, width - 96)
+        self._info_title.configure(wraplength=max(260, content_width - THUMBNAIL_SIZE[0] - 72))
+        self._info_meta.configure(wraplength=max(260, content_width - THUMBNAIL_SIZE[0] - 72))
+        if self._source_hint is not None:
+            self._source_hint.configure(wraplength=max(280, content_width - 30))
+
+    def _apply_layout(self, compact):
+        self._right_opts.grid_forget()
+        self._dl_btn.grid_forget()
+        self._cancel_btn.grid_forget()
+        self._folder_btn.grid_forget()
+
+        if compact:
+            self._right_opts.grid(row=1, column=0, padx=14, pady=(0, 12), sticky="w")
+            self._act_row.grid_columnconfigure(0, weight=1)
+            self._act_row.grid_columnconfigure(1, weight=1)
+            self._dl_btn.grid(row=0, column=0, columnspan=2, sticky="ew", padx=0, pady=(0, 8))
+            self._cancel_btn.grid(row=1, column=0, sticky="ew", padx=(0, 4))
+            self._folder_btn.grid(row=1, column=1, sticky="ew", padx=(4, 0))
+        else:
+            self._right_opts.grid(row=0, column=1, padx=14, pady=12, sticky="e")
+            self._act_row.grid_columnconfigure(0, weight=1)
+            self._act_row.grid_columnconfigure(1, weight=0)
+            self._act_row.grid_columnconfigure(2, weight=0)
+            self._dl_btn.grid(row=0, column=0, sticky="ew", padx=(0,8))
+            self._cancel_btn.grid(row=0, column=1, padx=(0,8))
+            self._folder_btn.grid(row=0, column=2)
 
     # ── Event Handlers ────────────────────────────────────────────────────────
     def _paste_url(self):
@@ -664,6 +847,9 @@ class DownloadFrame(ctk.CTkFrame):
         if not url:
             messagebox.showwarning("No URL", "Please paste a media URL first.")
             return
+        self._reset_thumbnail()
+        self._info_title.configure(text="Analysing media link...")
+        self._info_meta.configure(text="")
         self._fetch_btn.configure(state="disabled", text="Analysing…")
         self._log_write(f"Fetching info: {url}")
         playlist = self._playlist_var.get()
@@ -679,30 +865,96 @@ class DownloadFrame(ctk.CTkFrame):
             }, self.app.cfg)
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=False)
+            if not info:
+                raise yt_dlp.utils.DownloadError("No media information was returned for this URL.")
             title    = info.get("title", "Unknown")
             uploader = info.get("uploader", "")
             duration = fmt_duration(info.get("duration"))
             views    = info.get("view_count")
             n_fmt    = len(info.get("formats", []))
+            webpage_url = info.get("webpage_url") or url
+            extractor = info.get("extractor_key") or info.get("extractor") or ""
+            if not playlist and not n_fmt and not info.get("url"):
+                raise yt_dlp.utils.DownloadError(
+                    "No downloadable video formats were found for this URL.")
             views_s  = f"{views:,} views" if views else ""
-            self.after(0, lambda: self._update_info(title, uploader, duration, views_s, n_fmt))
+            thumb_url = self._extract_thumbnail_url(info)
+            self.after(0, lambda: self._update_info(
+                title, uploader, duration, views_s, n_fmt, extractor, webpage_url, thumb_url))
             self.after(0, lambda: self._log_write(
                 f'OK  "{title}"  |  {duration}  |  {n_fmt} formats'))
         except Exception as e:
-            self.after(0, lambda: self._log_write(f"ERROR  {e}"))
-            self.after(0, lambda: messagebox.showerror("Fetch Error", str(e)))
+            self.after(0, lambda m=str(e): self._log_write(f"ERROR  {m}"))
+            self.after(0, lambda m=str(e): self._show_error(m, fetch=True))
         finally:
             self.after(0, lambda: self._fetch_btn.configure(
                 state="normal", text="  Analyse  "))
 
-    def _update_info(self, title, uploader, duration, views, n_fmt):
+    def _update_info(self, title, uploader, duration, views, n_fmt, extractor="", webpage_url="", thumb_url=""):
         self._info_title.configure(text=title)
         parts = []
+        if extractor: parts.append(extractor)
         if uploader: parts.append(f"👤 {uploader}")
         if duration:  parts.append(f"⏱ {duration}")
         if views:     parts.append(f"👁 {views}")
         if n_fmt:     parts.append(f"🎬 {n_fmt} formats")
         self._info_meta.configure(text="   ·   ".join(parts))
+        if thumb_url:
+            self._load_thumbnail(thumb_url, webpage_url)
+
+    @staticmethod
+    def _extract_thumbnail_url(info):
+        thumbs = info.get("thumbnails") or []
+        if thumbs:
+            thumbs = sorted(
+                thumbs,
+                key=lambda t: (t.get("width") or 0) * (t.get("height") or 0),
+                reverse=True,
+            )
+            for thumb in thumbs:
+                if thumb.get("url"):
+                    return thumb["url"]
+        return info.get("thumbnail") or ""
+
+    def _reset_thumbnail(self):
+        self._thumb_image = None
+        self._thumb_label.configure(image=None, text="▶", text_color=TXT_DIM)
+
+    def _load_thumbnail(self, thumb_url, referer=""):
+        if Image is None:
+            return
+        threading.Thread(
+            target=self._thumbnail_worker,
+            args=(thumb_url, referer),
+            daemon=True,
+        ).start()
+
+    def _thumbnail_worker(self, thumb_url, referer):
+        try:
+            headers = {"User-Agent": "Mozilla/5.0"}
+            if referer:
+                headers["Referer"] = referer
+            req = urllib.request.Request(thumb_url, headers=headers)
+            with urllib.request.urlopen(req, timeout=12) as response:
+                raw = response.read(3 * 1024 * 1024)
+            img = Image.open(io.BytesIO(raw)).convert("RGB")
+            resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
+            img = ImageOps.fit(img, THUMBNAIL_SIZE, method=resample)
+            self.after(0, lambda image=img: self._set_thumbnail(image))
+        except Exception as e:
+            self.after(0, lambda m=str(e): self._log_write(f"Thumbnail unavailable: {m}"))
+
+    def _set_thumbnail(self, image):
+        self._thumb_image = ctk.CTkImage(light_image=image, dark_image=image, size=THUMBNAIL_SIZE)
+        self._thumb_label.configure(image=self._thumb_image, text="")
+
+    def _show_error(self, raw_msg, fetch=False):
+        clean = clean_error_text(raw_msg)
+        title, message, suggestions = classify_error(clean)
+        if fetch and title == "Download failed":
+            title = "Could not fetch media"
+            message = "MediaFlow could not read downloadable media information from this link."
+        ErrorDialog(self, title, message, details=clean, suggestions=suggestions)
 
     # ── Download ──────────────────────────────────────────────────────────────
     def _start_download(self):
@@ -806,20 +1058,14 @@ class DownloadFrame(ctk.CTkFrame):
         })
 
     def _on_error(self, msg):
+        clean = clean_error_text(msg)
         self._status_var.set("✗  Download failed")
         self._speed_var.set("")
         self._eta_var.set("")
         self._dl_btn.configure(state="normal")
         self._cancel_btn.configure(state="disabled")
-        self._log_write(f"ERROR  {msg}")
-        messagebox.showerror("Download Error",
-            f"{msg}\n\n"
-            "Common fixes:\n"
-            "• Install ffmpeg and ensure it is in your PATH\n"
-            "• Check your internet connection\n"
-            "• The URL may be private or geo-restricted\n"
-            "• For Instagram, Facebook, Google Drive, or age-restricted media, add cookies in Settings\n"
-            "• Try a lower quality or different format")
+        self._log_write(f"ERROR  {clean}")
+        self._show_error(clean)
 
     def _on_cancelled(self):
         self._progress.set(0)
