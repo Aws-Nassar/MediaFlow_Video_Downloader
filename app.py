@@ -1,94 +1,173 @@
 """
 MediaFlow Pro - desktop media downloader.
 
-Built with CustomTkinter + yt-dlp.
+PyQt5 UI + yt-dlp backend.
 """
 
-import customtkinter as ctk
-import threading
+import ctypes
+import io
 import json
 import os
+import re
 import subprocess
 import sys
+import threading
 import time
-import re
-import io
 import urllib.request
-import ctypes
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog, messagebox
 
-try:
-    from PIL import Image, ImageOps
-except ImportError:
-    Image = None
-    ImageOps = None
+from PyQt5.QtCore import Qt, QObject, pyqtSignal, QSize
+from PyQt5.QtGui import QIcon, QPixmap
+from PyQt5.QtWidgets import (
+    QApplication,
+    QButtonGroup,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFileDialog,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QScrollArea,
+    QSizePolicy,
+    QStackedWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+    QProgressBar,
+)
 
-# ── yt-dlp import ────────────────────────────────────────────────────────────
 try:
     import yt_dlp
 except ImportError:
-    import tkinter.messagebox as mb
-    mb.showerror("Missing Dependency",
-        "yt-dlp is not installed.\n\nRun:\n  pip install yt-dlp")
+    app = QApplication(sys.argv)
+    QMessageBox.critical(
+        None,
+        "Missing Dependency",
+        "yt-dlp is not installed.\n\nRun:\n  pip install yt-dlp",
+    )
     sys.exit(1)
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Constants & Defaults
-# ═══════════════════════════════════════════════════════════════════════════════
-APP_NAME     = "MediaFlow Pro"
-VERSION      = "2.1"
-APP_DIR      = Path(__file__).resolve().parent
-CONFIG_FILE  = Path.home() / ".ytflow2_config.json"
+
+APP_NAME = "MediaFlow Pro"
+VERSION = "2.1"
+APP_DIR = Path(__file__).resolve().parent
+CONFIG_FILE = Path.home() / ".ytflow2_config.json"
 HISTORY_FILE = Path.home() / ".ytflow2_history.json"
-THUMBNAIL_SIZE = (128, 72)
 ICON_FILE = "mediaflow.ico"
 ICON_PNG_FILE = "mediaflow.png"
+THUMBNAIL_SIZE = QSize(128, 72)
 
 DEFAULT_CONFIG = {
-    "theme":       "dark",
-    "output_dir":  str(Path.home() / "Downloads"),
+    "theme": "dark",
+    "output_dir": str(Path.home() / "Downloads"),
     "max_history": 100,
     "ffmpeg_path": "",
-    "concurrent":  "1",
+    "concurrent": "1",
     "cookie_file": "",
     "browser_cookies": "None",
 }
 
 SUPPORTED_SOURCE_HINTS = [
-    "YouTube", "Facebook", "Instagram", "TikTok", "X/Twitter",
-    "Vimeo", "SoundCloud", "Google Drive", "Twitch", "Reddit",
+    "YouTube",
+    "Facebook",
+    "Instagram",
+    "TikTok",
+    "X/Twitter",
+    "Vimeo",
+    "SoundCloud",
+    "Google Drive",
+    "Twitch",
+    "Reddit",
 ]
-BROWSER_COOKIE_SOURCES = ["None", "Chrome", "Edge", "Firefox", "Brave", "Opera", "Vivaldi", "Chromium"]
+BROWSER_COOKIE_SOURCES = [
+    "None",
+    "Chrome",
+    "Edge",
+    "Firefox",
+    "Brave",
+    "Opera",
+    "Vivaldi",
+    "Chromium",
+]
 
-VIDEO_FORMATS   = ["mp4", "mkv", "webm", "avi", "mov", "flv"]
-AUDIO_FORMATS   = ["mp3", "m4a", "aac", "opus", "flac", "wav", "ogg"]
+VIDEO_FORMATS = ["mp4", "mkv", "webm", "avi", "mov", "flv"]
+AUDIO_FORMATS = ["mp3", "m4a", "aac", "opus", "flac", "wav", "ogg"]
 VIDEO_QUALITIES = [
-    "Best Available", "4320p (8K)", "2160p (4K)", "1440p (2K)",
-    "1080p (FHD)", "720p (HD)", "480p", "360p", "240p", "144p", "Worst"
+    "Best Available",
+    "4320p (8K)",
+    "2160p (4K)",
+    "1440p (2K)",
+    "1080p (FHD)",
+    "720p (HD)",
+    "480p",
+    "360p",
+    "240p",
+    "144p",
+    "Worst",
 ]
-AUDIO_QUALITIES = ["Best", "320 kbps", "256 kbps", "192 kbps",
-                   "128 kbps", "96 kbps", "64 kbps", "Worst"]
-
-# ── Dark palette ─────────────────────────────────────────────────────────────
-BG_ROOT  = "#1A1D23"
-BG_PANEL = "#21252E"
-BG_CARD  = "#282D38"
-BG_INPUT = "#1E2229"
-TXT_PRI  = "#E8ECF4"
-TXT_SEC  = "#8891A4"
-TXT_DIM  = "#4D5568"
-BORDER   = "#2E3441"
-ACCENT   = "#2B7DE9"
-SUCCESS  = "#22C55E"
-ERROR    = "#F43F5E"
-WARN     = "#F59E0B"
+AUDIO_QUALITIES = [
+    "Best",
+    "320 kbps",
+    "256 kbps",
+    "192 kbps",
+    "128 kbps",
+    "96 kbps",
+    "64 kbps",
+    "Worst",
+]
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Persistence helpers
-# ═══════════════════════════════════════════════════════════════════════════════
+PALETTES = {
+    "dark": {
+        "root": "#1A1D23",
+        "panel": "#21252E",
+        "card": "#282D38",
+        "input": "#1E2229",
+        "text": "#E8ECF4",
+        "muted": "#9AA4B8",
+        "dim": "#657087",
+        "border": "#2E3441",
+        "accent": "#2B7DE9",
+        "accent_hover": "#1D65CA",
+        "danger": "#F43F5E",
+        "success": "#22C55E",
+        "warn": "#F59E0B",
+        "selected": "#2A3550",
+    },
+    "light": {
+        "root": "#F4F7FB",
+        "panel": "#E8EEF7",
+        "card": "#FFFFFF",
+        "input": "#F2F5FA",
+        "text": "#162033",
+        "muted": "#536176",
+        "dim": "#8290A5",
+        "border": "#D7DFEA",
+        "accent": "#256FE4",
+        "accent_hover": "#1D5FC4",
+        "danger": "#D92D50",
+        "success": "#16A34A",
+        "warn": "#D97706",
+        "selected": "#DDE9FF",
+    },
+}
+
+
+def resource_path(*parts):
+    base = Path(getattr(sys, "_MEIPASS", APP_DIR))
+    return base.joinpath(*parts)
+
+
 def load_config():
     try:
         if CONFIG_FILE.exists():
@@ -98,12 +177,14 @@ def load_config():
         pass
     return dict(DEFAULT_CONFIG)
 
+
 def save_config(cfg):
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
     except Exception:
         pass
+
 
 def load_history():
     try:
@@ -114,17 +195,33 @@ def load_history():
         pass
     return []
 
-def save_history(h):
+
+def save_history(history):
     try:
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(h, f, indent=2)
+            json.dump(history, f, indent=2)
     except Exception:
         pass
 
 
-def resource_path(*parts):
-    base = Path(getattr(sys, "_MEIPASS", APP_DIR))
-    return base.joinpath(*parts)
+def fmt_duration(secs):
+    if not secs:
+        return ""
+    secs = int(secs)
+    h, r = divmod(secs, 3600)
+    m, s = divmod(r, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
+def fmt_size(value):
+    if not value:
+        return ""
+    value = float(value)
+    for unit in ("B", "KB", "MB", "GB"):
+        if value < 1024:
+            return f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} TB"
 
 
 def clean_error_text(msg):
@@ -141,26 +238,26 @@ def classify_error(msg):
         return (
             "Windows could not create the output file",
             "The media title contains characters that are not valid in a Windows filename. "
-            "MediaFlow now uses safer filenames; try the download again.",
-            ["Retry the download", "Choose a shorter save folder path", "Update yt-dlp if the issue continues"],
+            "MediaFlow uses safer filenames; try the download again.",
+            ["Retry the download", "Choose a shorter save folder path", "Update yt-dlp if it continues"],
         )
     if "unsupported url" in lower or "no suitable extractor" in lower:
         return (
             "This link is not supported",
             "yt-dlp does not have an extractor for this URL, or the page is not a direct media link.",
-            ["Open the link in your browser and copy the media post URL", "Check that the post is public"],
+            ["Copy the media post URL", "Check that the post is public"],
         )
     if "private" in lower or "login" in lower or "cookies" in lower or "permission" in lower:
         return (
             "This media needs access permission",
             "The site is asking for a logged-in session or the link is private.",
-            ["In Settings, select your browser under Use Browser Cookies", "Or provide a cookies.txt file", "Confirm the link opens in your browser"],
+            ["Select browser cookies in Settings", "Or provide a cookies.txt file", "Confirm the link opens in your browser"],
         )
-    if "not a video" in lower or "no video" in lower or "requested format is not available" in lower:
+    if "no video" in lower or "not a video" in lower or "requested format is not available" in lower:
         return (
             "No downloadable video was found",
             "The page loaded, but yt-dlp could not find a media stream matching your selected options.",
-            ["Try Audio mode if the source is audio-only", "Try Best Available", "Confirm the URL points to a playable media page"],
+            ["Try Audio mode", "Try Best Available", "Confirm the URL points to playable media"],
         )
     if "ffmpeg" in lower:
         return (
@@ -172,7 +269,7 @@ def classify_error(msg):
         return (
             "Network problem",
             "The site did not respond reliably while MediaFlow was fetching the media.",
-            ["Check your internet connection", "Retry in a moment", "Open the link in your browser"],
+            ["Check your connection", "Retry in a moment", "Open the link in your browser"],
         )
     return (
         "Download failed",
@@ -181,61 +278,6 @@ def classify_error(msg):
     )
 
 
-class ErrorDialog(ctk.CTkToplevel):
-    def __init__(self, parent, title, message, details="", suggestions=None):
-        super().__init__(parent)
-        self.title(title)
-        self.configure(fg_color=BG_ROOT)
-        self.resizable(False, False)
-        self.transient(parent)
-        self.grab_set()
-
-        suggestions = suggestions or []
-
-        card = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=10)
-        card.grid(row=0, column=0, sticky="nsew", padx=18, pady=18)
-        card.grid_columnconfigure(1, weight=1)
-
-        icon = ctk.CTkFrame(card, width=42, height=42, fg_color="#3A1F2B", corner_radius=21)
-        icon.grid(row=0, column=0, padx=(16, 12), pady=(16, 8), sticky="n")
-        icon.grid_propagate(False)
-        ctk.CTkLabel(icon, text="!", font=ctk.CTkFont("Segoe UI", 20, weight="bold"),
-                     text_color=ERROR).place(relx=.5, rely=.48, anchor="center")
-
-        ctk.CTkLabel(card, text=title, font=ctk.CTkFont("Segoe UI", 17, weight="bold"),
-                     text_color=TXT_PRI, anchor="w").grid(row=0, column=1, padx=(0, 18), pady=(16, 4), sticky="ew")
-        ctk.CTkLabel(card, text=message, font=ctk.CTkFont("Segoe UI", 12),
-                     text_color=TXT_SEC, anchor="w", justify="left", wraplength=440
-                     ).grid(row=1, column=1, padx=(0, 18), pady=(0, 10), sticky="ew")
-
-        if suggestions:
-            tips = "\n".join(f"- {tip}" for tip in suggestions)
-            ctk.CTkLabel(card, text=tips, font=ctk.CTkFont("Segoe UI", 11),
-                         text_color=TXT_SEC, anchor="w", justify="left", wraplength=440
-                         ).grid(row=2, column=1, padx=(0, 18), pady=(0, 12), sticky="ew")
-
-        if details:
-            detail_box = ctk.CTkTextbox(card, height=78, fg_color=BG_INPUT,
-                                        text_color=TXT_DIM, border_color=BORDER,
-                                        border_width=1, corner_radius=8, wrap="word")
-            detail_box.grid(row=3, column=0, columnspan=2, sticky="ew", padx=16, pady=(0, 12))
-            detail_box.insert("1.0", details)
-            detail_box.configure(state="disabled")
-
-        ctk.CTkButton(card, text="OK", width=96, height=34, fg_color=ACCENT,
-                      hover_color="#1D65CA", command=self.destroy
-                      ).grid(row=4, column=0, columnspan=2, padx=16, pady=(0, 16), sticky="e")
-
-        self.update_idletasks()
-        w, h = 560, self.winfo_reqheight()
-        x = parent.winfo_rootx() + max(0, (parent.winfo_width() - w) // 2)
-        y = parent.winfo_rooty() + max(0, (parent.winfo_height() - h) // 2)
-        self.geometry(f"{w}x{h}+{x}+{y}")
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  yt-dlp helpers
-# ═══════════════════════════════════════════════════════════════════════════════
 def apply_auth_opts(opts, cfg):
     cookie_file = str(cfg.get("cookie_file", "")).strip()
     if cookie_file:
@@ -248,26 +290,18 @@ def apply_auth_opts(opts, cfg):
     return opts
 
 
-def fmt_duration(secs):
-    if not secs:
-        return ""
-    secs = int(secs)
-    h, r = divmod(secs, 3600)
-    m, s = divmod(r, 60)
-    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
-
-def fmt_size(b):
-    if not b:
-        return ""
-    for unit in ("B", "KB", "MB", "GB"):
-        if b < 1024:
-            return f"{b:.1f} {unit}"
-        b /= 1024
-    return f"{b:.1f} TB"
-
-def build_ydl_opts(cfg, out_dir, ext, quality, is_audio, progress_hook,
-                   subs=False, embed_thumb=False, sponsor_block=False,
-                   playlist=False):
+def build_ydl_opts(
+    cfg,
+    out_dir,
+    ext,
+    quality,
+    is_audio,
+    progress_hook,
+    subs=False,
+    embed_thumb=False,
+    sponsor_block=False,
+    playlist=False,
+):
     os.makedirs(out_dir, exist_ok=True)
     if playlist:
         outtmpl = os.path.join(
@@ -277,20 +311,26 @@ def build_ydl_opts(cfg, out_dir, ext, quality, is_audio, progress_hook,
         )
     else:
         outtmpl = os.path.join(out_dir, "%(title).120B [%(id)s].%(ext)s")
-    postprocessors = []
 
+    postprocessors = []
     if is_audio:
         q_map = {
-            "Best": "0", "320 kbps": "320", "256 kbps": "256",
-            "192 kbps": "192", "128 kbps": "128",
-            "96 kbps": "96", "64 kbps": "64", "Worst": "9",
+            "Best": "0",
+            "320 kbps": "320",
+            "256 kbps": "256",
+            "192 kbps": "192",
+            "128 kbps": "128",
+            "96 kbps": "96",
+            "64 kbps": "64",
+            "Worst": "9",
         }
-        aq = q_map.get(quality, "0")
-        postprocessors.append({
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": ext,
-            "preferredquality": aq,
-        })
+        postprocessors.append(
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": ext,
+                "preferredquality": q_map.get(quality, "0"),
+            }
+        )
         fmt = "bestaudio/best" if quality != "Worst" else "worstaudio/worst"
     else:
         height = None
@@ -301,48 +341,43 @@ def build_ydl_opts(cfg, out_dir, ext, quality, is_audio, progress_hook,
         if quality == "Worst":
             fmt = "worstvideo+worstaudio/worst"
         elif height:
-            fmt = (f"bestvideo[height<={height}]+bestaudio/"
-                   f"bestvideo[height<={height}]+bestaudio/best")
+            fmt = f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
         else:
             fmt = "bestvideo+bestaudio/best"
-        postprocessors.append({
-            "key": "FFmpegVideoConvertor",
-            "preferedformat": ext,
-        })
+        postprocessors.append({"key": "FFmpegVideoConvertor", "preferedformat": ext})
 
     if embed_thumb:
         postprocessors.append({"key": "EmbedThumbnail"})
     if subs:
-        postprocessors.append({
-            "key": "FFmpegEmbedSubtitle",
-            "already_have_subtitle": False,
-        })
+        postprocessors.append({"key": "FFmpegEmbedSubtitle", "already_have_subtitle": False})
     if sponsor_block:
         postprocessors.append({"key": "SponsorBlock"})
-        postprocessors.append({
-            "key": "ModifyChapters",
-            "remove_sponsor_segments": ["sponsor", "intro", "outro", "selfpromo"],
-        })
+        postprocessors.append(
+            {
+                "key": "ModifyChapters",
+                "remove_sponsor_segments": ["sponsor", "intro", "outro", "selfpromo"],
+            }
+        )
 
     try:
         conc = int(cfg.get("concurrent", 1))
-    except (ValueError, TypeError):
+    except (TypeError, ValueError):
         conc = 1
 
     opts = {
-        "format":          fmt,
-        "outtmpl":         outtmpl,
-        "progress_hooks":  [progress_hook],
-        "postprocessors":  postprocessors,
-        "quiet":           True,
-        "no_warnings":     True,
+        "format": fmt,
+        "outtmpl": outtmpl,
+        "progress_hooks": [progress_hook],
+        "postprocessors": postprocessors,
+        "quiet": True,
+        "no_warnings": True,
         "merge_output_format": ext if not is_audio else None,
-        "noplaylist":      not playlist,
-        "writesubtitles":  subs,
-        "subtitleslangs":  ["en"] if subs else [],
-        "writethumbnail":  embed_thumb,
+        "noplaylist": not playlist,
+        "writesubtitles": subs,
+        "subtitleslangs": ["en"] if subs else [],
+        "writethumbnail": embed_thumb,
         "concurrent_fragment_downloads": conc,
-        "retries":         5,
+        "retries": 5,
         "fragment_retries": 5,
         "windowsfilenames": True,
         "restrictfilenames": True,
@@ -354,617 +389,515 @@ def build_ydl_opts(cfg, out_dir, ext, quality, is_audio, progress_hook,
     return apply_auth_opts(opts, cfg)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Main Application Window
-# ═══════════════════════════════════════════════════════════════════════════════
-class MediaFlowApp(ctk.CTk):
+def make_card():
+    frame = QFrame()
+    frame.setObjectName("card")
+    return frame
+
+
+def clear_layout(layout):
+    while layout.count():
+        item = layout.takeAt(0)
+        widget = item.widget()
+        if widget is not None:
+            widget.deleteLater()
+
+
+class ErrorDialog(QDialog):
+    def __init__(self, parent, raw_msg, fetch=False):
+        super().__init__(parent)
+        clean = clean_error_text(raw_msg)
+        title, message, suggestions = classify_error(clean)
+        if fetch and title == "Download failed":
+            title = "Could not fetch media"
+            message = "MediaFlow could not read downloadable media information from this link."
+
+        self.setWindowTitle(title)
+        self.setModal(True)
+        self.setMinimumWidth(540)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        title_label = QLabel(title)
+        title_label.setObjectName("dialogTitle")
+        message_label = QLabel(message)
+        message_label.setWordWrap(True)
+
+        tips = QLabel("\n".join(f"- {tip}" for tip in suggestions))
+        tips.setWordWrap(True)
+        details = QTextEdit()
+        details.setObjectName("detailsBox")
+        details.setReadOnly(True)
+        details.setFixedHeight(88)
+        details.setPlainText(clean)
+
+        ok = QPushButton("OK")
+        ok.setObjectName("primaryButton")
+        ok.clicked.connect(self.accept)
+
+        layout.addWidget(title_label)
+        layout.addWidget(message_label)
+        layout.addWidget(tips)
+        layout.addWidget(details)
+        layout.addWidget(ok, alignment=Qt.AlignRight)
+
+
+class WorkerSignals(QObject):
+    info_ready = pyqtSignal(dict)
+    fetch_error = pyqtSignal(str)
+    download_error = pyqtSignal(str)
+    progress = pyqtSignal(float, str, str, str)
+    done = pyqtSignal(str, str, str, bool, float)
+    cancelled = pyqtSignal()
+    thumb_ready = pyqtSignal(bytes)
+    thumb_failed = pyqtSignal(str)
+
+
+class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.cfg     = load_config()
+        self.cfg = load_config()
         self.history = load_history()
+        self._nav_buttons = {}
 
-        ctk.set_appearance_mode(self.cfg.get("theme", "dark"))
-        ctk.set_default_color_theme("blue")
-        self.configure(fg_color=BG_ROOT)
-
-        self.title(f"{APP_NAME}  ·  v{VERSION}")
         self._apply_app_icon()
+        self.setWindowTitle(f"{APP_NAME}  ·  v{VERSION}")
         self._set_initial_geometry()
+        self.setMinimumSize(760, 540)
 
         self._build_ui()
-        self._nav("Download")
+        self.apply_theme(self.cfg.get("theme", "dark"))
+        self.navigate("Download")
 
     def _apply_app_icon(self):
         try:
             if sys.platform == "win32":
-                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-                    "MediaFlow.Pro.Desktop")
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("MediaFlow.Pro.Desktop")
         except Exception:
             pass
-
         icon_path = resource_path("assets", ICON_FILE)
         if icon_path.exists():
-            try:
-                self.iconbitmap(str(icon_path))
-            except Exception:
-                pass
+            self.setWindowIcon(QIcon(str(icon_path)))
 
     def _set_initial_geometry(self):
-        screen_w = self.winfo_screenwidth()
-        screen_h = self.winfo_screenheight()
-        usable_w = max(760, screen_w - 80)
-        usable_h = max(560, screen_h - 80)
-        width = min(max(1100, int(screen_w * 0.78)), usable_w)
-        height = min(max(720, int(screen_h * 0.82)), usable_h)
-        if screen_w < 900:
-            width = max(640, screen_w - 24)
-        if screen_h < 700:
-            height = max(520, screen_h - 60)
-        x = max(0, (screen_w - width) // 2)
-        y = max(0, (screen_h - height) // 2)
-        self.geometry(f"{width}x{height}+{x}+{y}")
-        self.minsize(min(760, width), min(560, height))
+        screen = QApplication.primaryScreen().availableGeometry()
+        width = min(max(1100, int(screen.width() * 0.78)), max(760, screen.width() - 60))
+        height = min(max(720, int(screen.height() * 0.82)), max(540, screen.height() - 60))
+        x = screen.x() + max(0, (screen.width() - width) // 2)
+        y = screen.y() + max(0, (screen.height() - height) // 2)
+        self.setGeometry(x, y, width, height)
 
     def _build_ui(self):
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
-        self._build_sidebar()
-        self._build_content()
+        root = QWidget()
+        root.setObjectName("appRoot")
+        root_layout = QHBoxLayout(root)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+        self.setCentralWidget(root)
 
-    # ── Sidebar ───────────────────────────────────────────────────────────────
-    def _build_sidebar(self):
-        sb = ctk.CTkFrame(self, width=220, fg_color=BG_PANEL, corner_radius=0)
-        sb.grid(row=0, column=0, sticky="nsew")
-        sb.grid_propagate(False)
-        sb.grid_rowconfigure(10, weight=1)
-        self._sidebar_icon = None
+        self.sidebar = QWidget()
+        self.sidebar.setObjectName("sidebar")
+        self.sidebar.setFixedWidth(240)
+        side = QVBoxLayout(self.sidebar)
+        side.setContentsMargins(18, 28, 18, 18)
+        side.setSpacing(12)
 
-        # Logo
-        logo_f = ctk.CTkFrame(sb, fg_color="transparent")
-        logo_f.grid(row=0, column=0, padx=20, pady=(28, 24), sticky="ew")
+        logo_row = QHBoxLayout()
+        logo_row.setSpacing(10)
+        icon_label = QLabel()
         icon_path = resource_path("assets", ICON_PNG_FILE)
-        if Image is not None and icon_path.exists():
-            try:
-                icon_img = Image.open(icon_path)
-                self._sidebar_icon = ctk.CTkImage(
-                    light_image=icon_img, dark_image=icon_img, size=(38, 38))
-                ctk.CTkLabel(logo_f, image=self._sidebar_icon, text="").grid(
-                    row=0, column=0, padx=(0,10))
-            except Exception:
-                ctk.CTkFrame(logo_f, width=4, height=36,
-                             fg_color=ACCENT, corner_radius=2).grid(row=0, column=0, padx=(0,10))
+        if icon_path.exists():
+            pix = QPixmap(str(icon_path)).scaled(38, 38, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            icon_label.setPixmap(pix)
         else:
-            ctk.CTkFrame(logo_f, width=4, height=36,
-                         fg_color=ACCENT, corner_radius=2).grid(row=0, column=0, padx=(0,10))
-        lbl_f = ctk.CTkFrame(logo_f, fg_color="transparent")
-        lbl_f.grid(row=0, column=1, sticky="w")
-        ctk.CTkLabel(lbl_f, text="MediaFlow",
-                     font=ctk.CTkFont("Segoe UI", 20, weight="bold"),
-                     text_color=TXT_PRI).grid(row=0, sticky="w")
-        ctk.CTkLabel(lbl_f, text="Universal Downloader",
-                     font=ctk.CTkFont("Segoe UI", 10),
-                     text_color=TXT_SEC).grid(row=1, sticky="w")
+            icon_label.setFixedSize(4, 36)
+            icon_label.setObjectName("accentBar")
+        logo_text = QVBoxLayout()
+        brand = QLabel("MediaFlow")
+        brand.setObjectName("brand")
+        tagline = QLabel("Universal Downloader")
+        tagline.setObjectName("mutedSmall")
+        logo_text.addWidget(brand)
+        logo_text.addWidget(tagline)
+        logo_row.addWidget(icon_label)
+        logo_row.addLayout(logo_text)
+        side.addLayout(logo_row)
+        side.addSpacing(28)
 
-        ctk.CTkLabel(sb, text="MENU",
-                     font=ctk.CTkFont("Segoe UI", 9, weight="bold"),
-                     text_color=TXT_DIM).grid(row=1, column=0, padx=20, sticky="w")
+        menu = QLabel("MENU")
+        menu.setObjectName("eyebrow")
+        side.addWidget(menu)
 
-        self._nav_btns = {}
-        for i, (name, icon) in enumerate([
-            ("Download", "⬇"),
-            ("History",  "🕐"),
-            ("Settings", "⚙"),
-        ]):
-            btn = ctk.CTkButton(
-                sb, text=f"  {icon}   {name}",
-                anchor="w", height=42,
-                font=ctk.CTkFont("Segoe UI", 13),
-                fg_color="transparent",
-                hover_color="#2A2F3D",
-                text_color=TXT_SEC,
-                corner_radius=8,
-                command=lambda n=name: self._nav(n))
-            btn.grid(row=2+i, column=0, padx=10, pady=2, sticky="ew")
-            self._nav_btns[name] = btn
+        for name in ("Download", "History", "Settings"):
+            btn = QPushButton(name)
+            btn.setObjectName("navButton")
+            btn.setCheckable(True)
+            btn.setMinimumHeight(42)
+            btn.clicked.connect(lambda _, n=name: self.navigate(n))
+            self._nav_buttons[name] = btn
+            side.addWidget(btn)
 
-        ctk.CTkFrame(sb, height=1, fg_color=BORDER).grid(
-            row=5, column=0, padx=16, pady=16, sticky="ew")
+        side.addSpacing(18)
+        save_lbl = QLabel("SAVE LOCATION")
+        save_lbl.setObjectName("eyebrow")
+        side.addWidget(save_lbl)
 
-        ctk.CTkLabel(sb, text="SAVE LOCATION",
-                     font=ctk.CTkFont("Segoe UI", 9, weight="bold"),
-                     text_color=TXT_DIM).grid(row=6, column=0, padx=20, sticky="w")
+        folder_card = make_card()
+        folder_layout = QVBoxLayout(folder_card)
+        folder_layout.setContentsMargins(12, 10, 12, 10)
+        self.dir_label = QLabel(self._short(self.cfg["output_dir"], 26))
+        self.dir_label.setObjectName("mutedSmall")
+        self.dir_label.setWordWrap(True)
+        folder_btn = QPushButton("Change Folder")
+        folder_btn.setObjectName("secondaryButton")
+        folder_btn.clicked.connect(self.browse_output_dir)
+        folder_layout.addWidget(self.dir_label)
+        folder_layout.addWidget(folder_btn)
+        side.addWidget(folder_card)
 
-        dir_card = ctk.CTkFrame(sb, fg_color=BG_CARD, corner_radius=8)
-        dir_card.grid(row=7, column=0, padx=12, pady=(4,0), sticky="ew")
-        dir_card.grid_columnconfigure(0, weight=1)
+        side.addStretch(1)
+        version = QLabel(f"v{VERSION}")
+        version.setObjectName("mutedSmall")
+        version.setAlignment(Qt.AlignCenter)
+        side.addWidget(version)
 
-        self._dir_lbl = ctk.CTkLabel(
-            dir_card, text=self._short(self.cfg["output_dir"]),
-            font=ctk.CTkFont("Segoe UI", 10), text_color=TXT_SEC,
-            wraplength=155, justify="left", anchor="w")
-        self._dir_lbl.grid(row=0, column=0, padx=10, pady=(8,2), sticky="w")
+        self.stack = QStackedWidget()
+        self.stack.setObjectName("contentStack")
+        self.download_page = DownloadPage(self)
+        self.history_page = HistoryPage(self)
+        self.settings_page = SettingsPage(self)
+        for page in (self.download_page, self.history_page, self.settings_page):
+            self.stack.addWidget(page)
 
-        ctk.CTkButton(
-            dir_card, text="Change Folder", height=28,
-            font=ctk.CTkFont("Segoe UI", 10),
-            fg_color=BG_INPUT, hover_color=BORDER,
-            text_color=TXT_SEC, corner_radius=6,
-            command=self._browse_dir
-        ).grid(row=1, column=0, padx=8, pady=(0,8), sticky="ew")
+        root_layout.addWidget(self.sidebar)
+        root_layout.addWidget(self.stack, 1)
 
-        ctk.CTkLabel(sb, text=f"v{VERSION}",
-                     font=ctk.CTkFont("Segoe UI", 9),
-                     text_color=TXT_DIM).grid(row=11, column=0, pady=(0,12))
-
-    def _build_content(self):
-        container = ctk.CTkFrame(self, fg_color="transparent")
-        container.grid(row=0, column=1, sticky="nsew")
-        container.grid_rowconfigure(0, weight=1)
-        container.grid_columnconfigure(0, weight=1)
-
-        self._frames = {}
-        for Cls in (DownloadFrame, HistoryFrame, SettingsFrame):
-            f = Cls(container, self)
-            f.grid(row=0, column=0, sticky="nsew")
-            self._frames[Cls.NAME] = f
-
-    def _nav(self, name):
-        for n, btn in self._nav_btns.items():
-            if n == name:
-                btn.configure(fg_color="#2A3550", text_color=ACCENT)
-            else:
-                btn.configure(fg_color="transparent", text_color=TXT_SEC)
-        self._frames[name].tkraise()
+    def navigate(self, name):
+        for n, btn in self._nav_buttons.items():
+            btn.setChecked(n == name)
+        page = {
+            "Download": self.download_page,
+            "History": self.history_page,
+            "Settings": self.settings_page,
+        }[name]
         if name == "History":
-            self._frames["History"].refresh(self.history)
+            self.history_page.refresh(self.history)
+        self.stack.setCurrentWidget(page)
 
-    def _browse_dir(self):
-        d = filedialog.askdirectory(initialdir=self.cfg["output_dir"])
-        if d:
-            self.cfg["output_dir"] = d
+    def browse_output_dir(self):
+        directory = QFileDialog.getExistingDirectory(self, "Select save folder", self.cfg["output_dir"])
+        if directory:
+            self.cfg["output_dir"] = directory
             save_config(self.cfg)
             self.apply_runtime_settings()
-            settings_frame = getattr(self, "_frames", {}).get("Settings")
-            if settings_frame is not None and hasattr(settings_frame, "_dir_var"):
-                settings_frame._dir_var.set(d)
-
-    @staticmethod
-    def _short(p, n=24):
-        p = str(p)
-        return p if len(p) <= n else "..." + p[-(n-1):]
+            self.settings_page.sync_from_config()
 
     def add_history(self, entry):
         self.history.insert(0, entry)
-        self.history = self.history[:self.cfg.get("max_history", 100)]
+        self.history = self.history[: self.cfg.get("max_history", 100)]
         save_history(self.history)
-        history_frame = getattr(self, "_frames", {}).get("History")
-        if history_frame is not None:
-            history_frame.refresh(self.history)
+        self.history_page.refresh(self.history)
 
     def apply_runtime_settings(self):
-        ctk.set_appearance_mode(self.cfg.get("theme", "dark"))
-        self._dir_lbl.configure(text=self._short(self.cfg["output_dir"]))
-        self.history = self.history[:self.cfg.get("max_history", 100)]
+        self.dir_label.setText(self._short(self.cfg["output_dir"], 26))
+        self.apply_theme(self.cfg.get("theme", "dark"))
+        self.history = self.history[: self.cfg.get("max_history", 100)]
         save_history(self.history)
-        history_frame = getattr(self, "_frames", {}).get("History")
-        if history_frame is not None:
-            history_frame.refresh(self.history)
+        self.history_page.refresh(self.history)
+
+    def apply_theme(self, theme):
+        if theme == "system":
+            theme = "dark"
+        palette = PALETTES.get(theme, PALETTES["dark"])
+        self._palette = palette
+        self.setStyleSheet(build_stylesheet(palette))
+        self.download_page.apply_palette(palette)
+        self.history_page.apply_palette(palette)
+        self.settings_page.apply_palette(palette)
+
+    @staticmethod
+    def _short(path, chars=24):
+        path = str(path)
+        return path if len(path) <= chars else "..." + path[-(chars - 3) :]
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Download Frame
-# ═══════════════════════════════════════════════════════════════════════════════
-class DownloadFrame(ctk.CTkFrame):
-    NAME = "Download"
+class DownloadPage(QWidget):
+    def __init__(self, app_window):
+        super().__init__()
+        self.setObjectName("page")
+        self.app_window = app_window
+        self.signals = WorkerSignals()
+        self.download_thread = None
+        self.cancel_event = threading.Event()
+        self.thumb_pixmap = None
+        self.media_features = {}
 
-    def __init__(self, parent, app: MediaFlowApp):
-        super().__init__(parent, fg_color=BG_ROOT, corner_radius=0)
-        self.app = app
-
-        # Initialize thread state BEFORE building UI (button callbacks reference these)
-        self._download_thread = None   # <-- BUG FIX
-        self._cancel_flag     = threading.Event()
-        self._thumb_image     = None
-        self._media_features  = {}
+        self.signals.info_ready.connect(self._on_info_ready)
+        self.signals.fetch_error.connect(self._on_fetch_error)
+        self.signals.download_error.connect(self._on_download_error)
+        self.signals.progress.connect(self._on_progress)
+        self.signals.done.connect(self._on_done)
+        self.signals.cancelled.connect(self._on_cancelled)
+        self.signals.thumb_ready.connect(self._set_thumbnail_from_bytes)
+        self.signals.thumb_failed.connect(self._on_thumb_failed)
 
         self._build()
 
     def _build(self):
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        # ── Top bar ──────────────────────────────────────────────────────────
-        topbar = ctk.CTkFrame(self, fg_color=BG_PANEL, corner_radius=0, height=60)
-        topbar.grid(row=0, column=0, sticky="ew")
-        topbar.grid_propagate(False)
-        topbar.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(topbar, text="Smart Download",
-                     font=ctk.CTkFont("Segoe UI", 16, weight="bold"),
-                     text_color=TXT_PRI
-                     ).grid(row=0, column=0, padx=24, pady=(10,2), sticky="w")
-        ctk.CTkLabel(topbar, text="Paste a supported media link and configure your download below",
-                     font=ctk.CTkFont("Segoe UI", 11), text_color=TXT_SEC
-                     ).grid(row=1, column=0, padx=24, pady=(0,10), sticky="w")
+        topbar = QFrame()
+        topbar.setObjectName("topbar")
+        topbar.setFixedHeight(70)
+        topbar_layout = QVBoxLayout(topbar)
+        topbar_layout.setContentsMargins(28, 12, 28, 12)
+        topbar_layout.setSpacing(4)
+        title = QLabel("Smart Download")
+        title.setObjectName("pageTitle")
+        subtitle = QLabel("Paste a supported media link and configure your download below")
+        subtitle.setObjectName("muted")
+        topbar_layout.addWidget(title)
+        topbar_layout.addWidget(subtitle)
+        root.addWidget(topbar)
 
-        self._body = ctk.CTkScrollableFrame(
-            self,
-            fg_color="transparent",
-            scrollbar_button_color=BG_CARD,
-            scrollbar_button_hover_color=BORDER,
-        )
-        self._body.grid(row=1, column=0, sticky="nsew", padx=0, pady=0)
-        self._body.grid_columnconfigure(0, weight=1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setObjectName("scrollArea")
+        body = QWidget()
+        body.setObjectName("scrollBody")
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(24, 18, 24, 20)
+        body_layout.setSpacing(12)
+        scroll.setWidget(body)
+        root.addWidget(scroll, 1)
 
-        # ── URL input card ───────────────────────────────────────────────────
-        url_card = ctk.CTkFrame(self._body, fg_color=BG_CARD, corner_radius=8)
-        url_card.grid(row=0, column=0, sticky="ew", padx=24, pady=(16, 6))
-        url_card.grid_columnconfigure(0, weight=1)
-        self._source_hint = None
+        self._build_url_card(body_layout)
+        self._build_info_card(body_layout)
+        self._build_options_card(body_layout)
+        self._build_progress_card(body_layout)
+        self._build_actions(body_layout)
+        self._build_log(body_layout)
+        body_layout.addStretch(1)
 
-        ctk.CTkLabel(url_card, text="MEDIA / PLAYLIST URL",
-                     font=ctk.CTkFont("Segoe UI", 9, weight="bold"),
-                     text_color=TXT_DIM
-                     ).grid(row=0, column=0, padx=14, pady=(12,4), sticky="w")
+    def _build_url_card(self, parent):
+        card = make_card()
+        card.setMinimumHeight(112)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(18, 15, 18, 15)
+        layout.setSpacing(10)
+        label = QLabel("MEDIA / PLAYLIST URL")
+        label.setObjectName("eyebrow")
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        self.url_edit = QLineEdit()
+        self.url_edit.setMinimumHeight(42)
+        self.url_edit.setPlaceholderText("Paste YouTube, Facebook, Instagram, Google Drive, Vimeo, SoundCloud...")
+        self.url_edit.returnPressed.connect(self.fetch_info)
+        paste = QPushButton("Paste")
+        paste.setObjectName("secondaryButton")
+        paste.setMinimumHeight(42)
+        paste.setMinimumWidth(74)
+        paste.clicked.connect(self.paste_url)
+        self.analyse_btn = QPushButton("Analyse")
+        self.analyse_btn.setObjectName("primaryButton")
+        self.analyse_btn.setMinimumHeight(42)
+        self.analyse_btn.setMinimumWidth(86)
+        self.analyse_btn.clicked.connect(self.fetch_info)
+        row.addWidget(self.url_edit, 1)
+        row.addWidget(paste)
+        row.addWidget(self.analyse_btn)
+        hint = QLabel("Supported by yt-dlp: " + ", ".join(SUPPORTED_SOURCE_HINTS) + ", and many more")
+        hint.setObjectName("mutedSmall")
+        hint.setWordWrap(True)
+        layout.addWidget(label)
+        layout.addLayout(row)
+        layout.addWidget(hint)
+        parent.addWidget(card)
 
-        url_row = ctk.CTkFrame(url_card, fg_color="transparent")
-        url_row.grid(row=1, column=0, sticky="ew", padx=12, pady=(0,12))
-        url_row.grid_columnconfigure(0, weight=1)
+    def _build_info_card(self, parent):
+        card = make_card()
+        card.setMinimumHeight(104)
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(18, 14, 18, 14)
+        layout.setSpacing(16)
+        self.thumb_label = QLabel()
+        self.thumb_label.setObjectName("thumb")
+        self.thumb_label.setFixedSize(THUMBNAIL_SIZE)
+        self.thumb_label.setAlignment(Qt.AlignCenter)
+        self._set_thumbnail_placeholder("Preview")
 
-        self._url_var = ctk.StringVar()
-        self._url_entry = ctk.CTkEntry(
-            url_row, textvariable=self._url_var,
-            placeholder_text="Paste YouTube, Facebook, Instagram, Google Drive, Vimeo, SoundCloud...",
-            height=42, font=ctk.CTkFont("Segoe UI", 12),
-            fg_color=BG_INPUT, border_color=BORDER,
-            text_color=TXT_PRI, placeholder_text_color=TXT_DIM,
-            corner_radius=8)
-        self._url_entry.grid(row=0, column=0, sticky="ew", padx=(0,8))
-        self._url_entry.bind("<Return>", lambda _: self._fetch_info())
+        text_box = QVBoxLayout()
+        text_box.setSpacing(8)
+        self.info_title = QLabel("Paste a link and click Analyse to load media info")
+        self.info_title.setObjectName("infoTitle")
+        self.info_title.setWordWrap(True)
+        self.info_meta = QLabel("")
+        self.info_meta.setObjectName("muted")
+        self.info_meta.setWordWrap(True)
+        text_box.addWidget(self.info_title)
+        text_box.addWidget(self.info_meta)
+        layout.addWidget(self.thumb_label)
+        layout.addLayout(text_box, 1)
+        parent.addWidget(card)
 
-        self._paste_btn = ctk.CTkButton(
-            url_row, text="Paste", width=76, height=42,
-            font=ctk.CTkFont("Segoe UI", 11),
-            fg_color=BG_INPUT, hover_color=BORDER,
-            text_color=TXT_SEC, border_color=BORDER, border_width=1,
-            corner_radius=8, command=self._paste_url)
-        self._paste_btn.grid(row=0, column=1, padx=(0,8))
+    def _build_options_card(self, parent):
+        card = make_card()
+        card.setMinimumHeight(118)
+        layout = QGridLayout(card)
+        layout.setContentsMargins(18, 15, 18, 15)
+        layout.setHorizontalSpacing(24)
+        layout.setVerticalSpacing(10)
 
-        self._fetch_btn = ctk.CTkButton(
-            url_row, text="  Analyse  ", height=42,
-            font=ctk.CTkFont("Segoe UI", 12, weight="bold"),
-            fg_color=ACCENT, hover_color="#1D65CA", corner_radius=8,
-            command=self._fetch_info)
-        self._fetch_btn.grid(row=0, column=2)
+        layout.addWidget(self._eyebrow("MEDIA TYPE"), 0, 0)
+        layout.addWidget(self._eyebrow("FORMAT"), 0, 1)
+        layout.addWidget(self._eyebrow("QUALITY"), 0, 2)
+        layout.addWidget(self._eyebrow("OPTIONS"), 0, 3, 1, 2)
 
-        self._source_hint = ctk.CTkLabel(
-            url_card,
-            text="Supported by yt-dlp: " + ", ".join(SUPPORTED_SOURCE_HINTS) + ", and many more",
-            font=ctk.CTkFont("Segoe UI", 10),
-            text_color=TXT_DIM,
-            wraplength=760,
-            justify="left",
-        )
-        self._source_hint.grid(row=2, column=0, padx=14, pady=(0,12), sticky="w")
+        type_row = QHBoxLayout()
+        self.video_radio = QRadioButton("Video")
+        self.audio_radio = QRadioButton("Audio")
+        self.video_radio.setChecked(True)
+        self.type_group = QButtonGroup(self)
+        self.type_group.addButton(self.video_radio)
+        self.type_group.addButton(self.audio_radio)
+        self.video_radio.toggled.connect(self._on_type_changed)
+        type_row.addWidget(self.video_radio)
+        type_row.addWidget(self.audio_radio)
+        type_row.addStretch(1)
+        layout.addLayout(type_row, 1, 0)
 
-        # ── Info card ────────────────────────────────────────────────────────
-        info_card = ctk.CTkFrame(self._body, fg_color=BG_CARD, corner_radius=8)
-        info_card.grid(row=1, column=0, sticky="ew", padx=24, pady=6)
-        info_card.grid_columnconfigure(1, weight=1)
+        self.format_combo = QComboBox()
+        self.format_combo.setMinimumHeight(36)
+        self.format_combo.setMinimumWidth(96)
+        self.format_combo.addItems(VIDEO_FORMATS)
+        self.quality_combo = QComboBox()
+        self.quality_combo.setMinimumHeight(36)
+        self.quality_combo.setMinimumWidth(210)
+        self.quality_combo.addItems(VIDEO_QUALITIES)
+        layout.addWidget(self.format_combo, 1, 1)
+        layout.addWidget(self.quality_combo, 1, 2)
 
-        self._thumb_box = ctk.CTkFrame(info_card, width=THUMBNAIL_SIZE[0], height=THUMBNAIL_SIZE[1],
-                                 fg_color=BG_INPUT, corner_radius=6)
-        self._thumb_box.grid(row=0, column=0, rowspan=2, padx=14, pady=12)
-        self._thumb_box.grid_propagate(False)
-        self._thumb_label = ctk.CTkLabel(self._thumb_box, text="▶",
-                                         font=ctk.CTkFont("Segoe UI", 24),
-                                         text_color=TXT_DIM)
-        self._thumb_label.place(relx=.5, rely=.5, anchor="center")
+        self.playlist_check = QCheckBox("Full Playlist")
+        self.subs_check = QCheckBox("Subtitles")
+        self.thumb_check = QCheckBox("Embed Thumbnail")
+        self.sponsor_check = QCheckBox("SponsorBlock")
+        layout.addWidget(self.playlist_check, 1, 3)
+        layout.addWidget(self.subs_check, 1, 4)
+        layout.addWidget(self.thumb_check, 2, 3)
+        layout.addWidget(self.sponsor_check, 2, 4)
 
-        self._info_title = ctk.CTkLabel(
-            info_card, text="Paste a link and click Analyse to load media info",
-            font=ctk.CTkFont("Segoe UI", 13, weight="bold"),
-            text_color=TXT_PRI, wraplength=640, justify="left", anchor="w")
-        self._info_title.grid(row=0, column=1, sticky="w", padx=8, pady=(12,2))
-
-        self._info_meta = ctk.CTkLabel(
-            info_card, text="",
-            font=ctk.CTkFont("Segoe UI", 11), text_color=TXT_SEC,
-            justify="left", anchor="w")
-        self._info_meta.grid(row=1, column=1, sticky="w", padx=8, pady=(0,12))
-
-        # ── Options card ─────────────────────────────────────────────────────
-        opts_card = ctk.CTkFrame(self._body, fg_color=BG_CARD, corner_radius=8)
-        opts_card.grid(row=2, column=0, sticky="ew", padx=24, pady=6)
-        opts_card.grid_columnconfigure(0, weight=1)
-        opts_card.grid_columnconfigure(1, weight=1)
-        self._opts_card = opts_card
-
-        self._left_opts = ctk.CTkFrame(opts_card, fg_color="transparent")
-        self._left_opts.grid(row=0, column=0, padx=14, pady=12, sticky="w")
-
-        self._right_opts = ctk.CTkFrame(opts_card, fg_color="transparent")
-        self._right_opts.grid(row=0, column=1, padx=14, pady=12, sticky="e")
-
-        # Media type
-        ctk.CTkLabel(self._left_opts, text="MEDIA TYPE",
-                     font=ctk.CTkFont("Segoe UI", 9, weight="bold"),
-                     text_color=TXT_DIM).grid(row=0, column=0, sticky="w", padx=(0,30))
-        ctk.CTkLabel(self._left_opts, text="FORMAT",
-                     font=ctk.CTkFont("Segoe UI", 9, weight="bold"),
-                     text_color=TXT_DIM).grid(row=0, column=1, sticky="w", padx=(0,30))
-        ctk.CTkLabel(self._left_opts, text="QUALITY",
-                     font=ctk.CTkFont("Segoe UI", 9, weight="bold"),
-                     text_color=TXT_DIM).grid(row=0, column=2, sticky="w")
-
-        self._type_var = ctk.StringVar(value="Video")
-        self._type_seg = ctk.CTkSegmentedButton(
-            self._left_opts, values=["Video", "Audio"],
-            variable=self._type_var,
-            font=ctk.CTkFont("Segoe UI", 12),
-            command=self._on_type_change)
-        self._type_seg.grid(row=1, column=0, pady=(6,0), padx=(0,20), sticky="w")
-
-        self._fmt_var = ctk.StringVar(value="mp4")
-        self._fmt_menu = ctk.CTkOptionMenu(
-            self._left_opts, variable=self._fmt_var,
-            values=VIDEO_FORMATS, width=100,
-            font=ctk.CTkFont("Segoe UI", 12),
-            fg_color=BG_INPUT, button_color=BG_INPUT,
-            button_hover_color=BORDER, dropdown_fg_color=BG_CARD,
-            text_color=TXT_PRI)
-        self._fmt_menu.grid(row=1, column=1, pady=(6,0), padx=(0,20), sticky="w")
-
-        self._qual_var = ctk.StringVar(value="Best Available")
-        self._qual_menu = ctk.CTkOptionMenu(
-            self._left_opts, variable=self._qual_var,
-            values=VIDEO_QUALITIES, width=160,
-            font=ctk.CTkFont("Segoe UI", 12),
-            fg_color=BG_INPUT, button_color=BG_INPUT,
-            button_hover_color=BORDER, dropdown_fg_color=BG_CARD,
-            text_color=TXT_PRI)
-        self._qual_menu.grid(row=1, column=2, pady=(6,0), sticky="w")
-
-        # Checkboxes
-        ctk.CTkLabel(self._right_opts, text="OPTIONS",
-                     font=ctk.CTkFont("Segoe UI", 9, weight="bold"),
-                     text_color=TXT_DIM).grid(row=0, column=0, columnspan=2, sticky="w")
-
-        chk_kw = dict(
-            font=ctk.CTkFont("Segoe UI", 11), text_color=TXT_SEC,
-            fg_color=ACCENT, hover_color="#1D65CA",
-            border_color=BORDER, checkmark_color=TXT_PRI)
-
-        self._playlist_var = ctk.BooleanVar(value=False)
-        self._subs_var     = ctk.BooleanVar(value=False)
-        self._thumb_var    = ctk.BooleanVar(value=False)
-        self._sponsor_var  = ctk.BooleanVar(value=False)
-
-        self._playlist_check = ctk.CTkCheckBox(self._right_opts, text="Full Playlist",
-                                               variable=self._playlist_var, **chk_kw)
-        self._playlist_check.grid(row=1, column=0, padx=(0,20), pady=(6,0), sticky="w")
-        self._subs_check = ctk.CTkCheckBox(self._right_opts, text="Subtitles",
-                                           variable=self._subs_var, **chk_kw)
-        self._subs_check.grid(row=1, column=1, pady=(6,0), sticky="w")
-        self._thumb_check = ctk.CTkCheckBox(self._right_opts, text="Embed Thumbnail",
-                                            variable=self._thumb_var, **chk_kw)
-        self._thumb_check.grid(row=2, column=0, padx=(0,20), pady=(6,0), sticky="w")
-        self._sponsor_check = ctk.CTkCheckBox(self._right_opts, text="SponsorBlock",
-                                              variable=self._sponsor_var, **chk_kw)
-        self._sponsor_check.grid(row=2, column=1, pady=(6,0), sticky="w")
+        for col in range(5):
+            layout.setColumnStretch(col, 1 if col in (2, 4) else 0)
         self._set_feature_options({})
+        parent.addWidget(card)
 
-        # ── Progress card ────────────────────────────────────────────────────
-        prog_card = ctk.CTkFrame(self._body, fg_color=BG_CARD, corner_radius=8)
-        prog_card.grid(row=3, column=0, sticky="ew", padx=24, pady=6)
-        prog_card.grid_columnconfigure(0, weight=1)
+    def _build_progress_card(self, parent):
+        card = make_card()
+        card.setMinimumHeight(70)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(18, 13, 18, 13)
+        row = QHBoxLayout()
+        self.status_label = QLabel("Idle - ready to download")
+        self.status_label.setObjectName("muted")
+        self.speed_label = QLabel("")
+        self.speed_label.setObjectName("mutedSmall")
+        self.eta_label = QLabel("")
+        self.eta_label.setObjectName("mutedSmall")
+        row.addWidget(self.status_label, 1)
+        row.addWidget(self.speed_label)
+        row.addWidget(self.eta_label)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 1000)
+        self.progress.setValue(0)
+        self.progress.setTextVisible(False)
+        layout.addLayout(row)
+        layout.addWidget(self.progress)
+        parent.addWidget(card)
 
-        prog_inner = ctk.CTkFrame(prog_card, fg_color="transparent")
-        prog_inner.grid(row=0, column=0, sticky="ew", padx=16, pady=12)
-        prog_inner.grid_columnconfigure(0, weight=1)
+    def _build_actions(self, parent):
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        self.download_btn = QPushButton("Start Download")
+        self.download_btn.setObjectName("primaryButton")
+        self.download_btn.setMinimumHeight(48)
+        self.download_btn.clicked.connect(self.start_download)
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setObjectName("dangerButton")
+        self.cancel_btn.setMinimumHeight(48)
+        self.cancel_btn.setMinimumWidth(100)
+        self.cancel_btn.setEnabled(False)
+        self.cancel_btn.clicked.connect(self.cancel_download)
+        open_btn = QPushButton("Open Folder")
+        open_btn.setObjectName("secondaryButton")
+        open_btn.setMinimumHeight(48)
+        open_btn.setMinimumWidth(120)
+        open_btn.clicked.connect(self.open_folder)
+        row.addWidget(self.download_btn, 1)
+        row.addWidget(self.cancel_btn)
+        row.addWidget(open_btn)
+        parent.addLayout(row)
 
-        self._status_var = ctk.StringVar(value="Idle  —  ready to download")
-        self._speed_var  = ctk.StringVar(value="")
-        self._eta_var    = ctk.StringVar(value="")
-
-        stat_row = ctk.CTkFrame(prog_inner, fg_color="transparent")
-        stat_row.grid(row=0, column=0, sticky="ew")
-        stat_row.grid_columnconfigure(0, weight=1)
-
-        ctk.CTkLabel(stat_row, textvariable=self._status_var,
-                     font=ctk.CTkFont("Segoe UI", 11), text_color=TXT_SEC, anchor="w"
-                     ).grid(row=0, column=0, sticky="w")
-        ctk.CTkLabel(stat_row, textvariable=self._speed_var,
-                     font=ctk.CTkFont("Consolas", 10), text_color=TXT_DIM
-                     ).grid(row=0, column=1, sticky="e", padx=(8,0))
-        ctk.CTkLabel(stat_row, textvariable=self._eta_var,
-                     font=ctk.CTkFont("Consolas", 10), text_color=TXT_DIM
-                     ).grid(row=0, column=2, sticky="e", padx=(8,0))
-
-        self._progress = ctk.CTkProgressBar(
-            prog_inner, height=6, corner_radius=3,
-            fg_color=BG_INPUT, progress_color=ACCENT)
-        self._progress.grid(row=1, column=0, sticky="ew", pady=(8,0))
-        self._progress.set(0)
-
-        # ── Action buttons ───────────────────────────────────────────────────
-        self._act_row = ctk.CTkFrame(self._body, fg_color="transparent")
-        self._act_row.grid(row=4, column=0, sticky="ew", padx=24, pady=(8,10))
-        self._act_row.grid_columnconfigure(0, weight=1)
-
-        self._dl_btn = ctk.CTkButton(
-            self._act_row, text="  ⬇   Start Download  ", height=48,
-            font=ctk.CTkFont("Segoe UI", 14, weight="bold"),
-            fg_color=ACCENT, hover_color="#1D65CA", corner_radius=10,
-            command=self._start_download)
-        self._dl_btn.grid(row=0, column=0, sticky="ew", padx=(0,8))
-
-        self._cancel_btn = ctk.CTkButton(
-            self._act_row, text="✕  Cancel", width=110, height=48,
-            font=ctk.CTkFont("Segoe UI", 12),
-            fg_color=BG_CARD, hover_color="#3A2020",
-            text_color=ERROR, border_color=ERROR, border_width=1,
-            corner_radius=10, state="disabled",
-            command=self._cancel)
-        self._cancel_btn.grid(row=0, column=1, padx=(0,8))
-
-        self._folder_btn = ctk.CTkButton(
-            self._act_row, text="📁  Open Folder", width=140, height=48,
-            font=ctk.CTkFont("Segoe UI", 12),
-            fg_color=BG_CARD, hover_color=BORDER,
-            text_color=TXT_SEC, border_color=BORDER, border_width=1,
-            corner_radius=10, command=self._open_folder)
-        self._folder_btn.grid(row=0, column=2)
-
-        # ── Log console ──────────────────────────────────────────────────────
-        log_hdr = ctk.CTkFrame(self._body, fg_color="transparent")
-        log_hdr.grid(row=5, column=0, sticky="ew", padx=24, pady=(4,0))
-        log_hdr.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(log_hdr, text="CONSOLE OUTPUT",
-                     font=ctk.CTkFont("Segoe UI", 9, weight="bold"),
-                     text_color=TXT_DIM).grid(row=0, column=0, sticky="w")
-        ctk.CTkButton(log_hdr, text="Clear", width=52, height=22,
-                      font=ctk.CTkFont("Segoe UI", 9),
-                      fg_color="transparent", hover_color=BORDER,
-                      text_color=TXT_DIM, command=self._clear_log
-                      ).grid(row=0, column=1, sticky="e")
-
-        self._log = ctk.CTkTextbox(
-            self._body, font=ctk.CTkFont("Consolas", 10),
-            fg_color=BG_PANEL, text_color=TXT_SEC,
-            border_color=BORDER, border_width=1,
-            corner_radius=6, wrap="word", state="disabled", height=96)
-        self._log.grid(row=6, column=0, sticky="ew", padx=24, pady=(4,16))
-
-    # ── Event Handlers ────────────────────────────────────────────────────────
-    def _paste_url(self):
-        try:
-            self._url_var.set(self.clipboard_get().strip())
-        except Exception:
-            pass
-
-    def _on_type_change(self, value):
-        if value == "Video":
-            self._fmt_var.set("mp4")
-            self._fmt_menu.configure(values=VIDEO_FORMATS)
-            self._qual_var.set("Best Available")
-            self._qual_menu.configure(values=VIDEO_QUALITIES)
-        else:
-            self._fmt_var.set("mp3")
-            self._fmt_menu.configure(values=AUDIO_FORMATS)
-            self._qual_var.set("Best")
-            self._qual_menu.configure(values=AUDIO_QUALITIES)
-
-    def _log_write(self, msg):
-        self._log.configure(state="normal")
-        ts = datetime.now().strftime("%H:%M:%S")
-        self._log.insert("end", f"[{ts}]  {msg}\n")
-        self._log.see("end")
-        self._log.configure(state="disabled")
-
-    def _clear_log(self):
-        self._log.configure(state="normal")
-        self._log.delete("1.0", "end")
-        self._log.configure(state="disabled")
-
-    def _set_feature_options(self, features):
-        self._media_features = features
-
-        option_map = [
-            ("playlist", self._playlist_check, self._playlist_var),
-            ("subtitles", self._subs_check, self._subs_var),
-            ("thumbnail", self._thumb_check, self._thumb_var),
-            ("sponsorblock", self._sponsor_check, self._sponsor_var),
-        ]
-        for key, checkbox, variable in option_map:
-            enabled = bool(features.get(key))
-            checkbox.configure(state="normal" if enabled else "disabled")
-            if not enabled:
-                variable.set(False)
+    def _build_log(self, parent):
+        row = QHBoxLayout()
+        label = QLabel("CONSOLE OUTPUT")
+        label.setObjectName("eyebrow")
+        clear = QPushButton("Clear")
+        clear.setObjectName("flatButton")
+        clear.clicked.connect(self.log_edit_clear)
+        row.addWidget(label)
+        row.addStretch(1)
+        row.addWidget(clear)
+        self.log_edit = QTextEdit()
+        self.log_edit.setObjectName("logBox")
+        self.log_edit.setReadOnly(True)
+        self.log_edit.setMinimumHeight(128)
+        self.log_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        parent.addLayout(row)
+        parent.addWidget(self.log_edit)
 
     @staticmethod
-    def _analyze_features(info):
-        info_type = info.get("_type") or ""
-        entries = info.get("entries")
-        extractor = (info.get("extractor_key") or info.get("extractor") or "").lower()
-        webpage_url = (info.get("webpage_url") or info.get("original_url") or "").lower()
+    def _eyebrow(text):
+        label = QLabel(text)
+        label.setObjectName("eyebrow")
+        return label
 
-        is_playlist = info_type in {"playlist", "multi_video"} or entries is not None
-        has_subtitles = bool(info.get("subtitles") or info.get("automatic_captions"))
-        has_thumbnail = bool(DownloadFrame._extract_thumbnail_url(info))
-        sponsorblock = "youtube" in extractor or "youtu.be" in webpage_url or "youtube.com" in webpage_url
-
-        return {
-            "playlist": is_playlist,
-            "subtitles": has_subtitles,
-            "thumbnail": has_thumbnail,
-            "sponsorblock": sponsorblock,
-        }
-
-    # ── Fetch Info ────────────────────────────────────────────────────────────
-    def _fetch_info(self):
-        url = self._url_var.get().strip()
-        if not url:
-            messagebox.showwarning("No URL", "Please paste a media URL first.")
-            return
-        self._reset_thumbnail()
-        self._set_feature_options({})
-        self._info_title.configure(text="Analysing media link...")
-        self._info_meta.configure(text="")
-        self._fetch_btn.configure(state="disabled", text="Analysing…")
-        self._log_write(f"Fetching info: {url}")
-        playlist = self._playlist_var.get()
-        threading.Thread(target=self._fetch_worker, args=(url, playlist), daemon=True).start()
-
-    def _fetch_worker(self, url, playlist):
-        try:
-            opts = apply_auth_opts({
-                "quiet": True,
-                "no_warnings": True,
-                "skip_download": True,
-                "noplaylist": not playlist,
-            }, self.app.cfg)
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-            if not info:
-                raise yt_dlp.utils.DownloadError("No media information was returned for this URL.")
-            title    = info.get("title", "Unknown")
-            uploader = info.get("uploader", "")
-            duration = fmt_duration(info.get("duration"))
-            views    = info.get("view_count")
-            n_fmt    = len(info.get("formats", []))
-            webpage_url = info.get("webpage_url") or url
-            extractor = info.get("extractor_key") or info.get("extractor") or ""
-            if not playlist and not n_fmt and not info.get("url"):
-                raise yt_dlp.utils.DownloadError(
-                    "No downloadable video formats were found for this URL.")
-            views_s  = f"{views:,} views" if views else ""
-            thumb_url = self._extract_thumbnail_url(info)
-            features = self._analyze_features(info)
-            self.after(0, lambda: self._update_info(
-                title, uploader, duration, views_s, n_fmt, extractor, webpage_url, thumb_url, features))
-            self.after(0, lambda: self._log_write(
-                f'OK  "{title}"  |  {duration}  |  {n_fmt} formats'))
-        except Exception as e:
-            self.after(0, lambda m=str(e): self._log_write(f"ERROR  {m}"))
-            self.after(0, lambda m=str(e): self._show_error(m, fetch=True))
-        finally:
-            self.after(0, lambda: self._fetch_btn.configure(
-                state="normal", text="  Analyse  "))
-
-    def _update_info(self, title, uploader, duration, views, n_fmt, extractor="", webpage_url="", thumb_url="", features=None):
-        self._info_title.configure(text=title)
-        parts = []
-        if extractor: parts.append(extractor)
-        if uploader: parts.append(f"👤 {uploader}")
-        if duration:  parts.append(f"⏱ {duration}")
-        if views:     parts.append(f"👁 {views}")
-        if n_fmt:     parts.append(f"🎬 {n_fmt} formats")
-        self._info_meta.configure(text="   ·   ".join(parts))
-        self._set_feature_options(features or {})
-        if thumb_url:
-            self._load_thumbnail(thumb_url, webpage_url)
+    def _on_type_changed(self):
+        if self.video_radio.isChecked():
+            self.format_combo.clear()
+            self.format_combo.addItems(VIDEO_FORMATS)
+            self.quality_combo.clear()
+            self.quality_combo.addItems(VIDEO_QUALITIES)
         else:
-            self._set_thumbnail_placeholder("No preview")
+            self.format_combo.clear()
+            self.format_combo.addItems(AUDIO_FORMATS)
+            self.quality_combo.clear()
+            self.quality_combo.addItems(AUDIO_QUALITIES)
+
+    def paste_url(self):
+        self.url_edit.setText(QApplication.clipboard().text().strip())
+
+    def log(self, message):
+        self.log_edit.append(f"[{datetime.now().strftime('%H:%M:%S')}]  {message}")
+
+    def log_edit_clear(self):
+        self.log_edit.clear()
+
+    def _set_feature_options(self, features):
+        self.media_features = features
+        option_map = [
+            ("playlist", self.playlist_check),
+            ("subtitles", self.subs_check),
+            ("thumbnail", self.thumb_check),
+            ("sponsorblock", self.sponsor_check),
+        ]
+        for key, checkbox in option_map:
+            enabled = bool(features.get(key))
+            checkbox.setEnabled(enabled)
+            if not enabled:
+                checkbox.setChecked(False)
 
     @staticmethod
     def _extract_thumbnail_url(info):
@@ -972,7 +905,7 @@ class DownloadFrame(ctk.CTkFrame):
         if thumbs:
             thumbs = sorted(
                 thumbs,
-                key=lambda t: (t.get("width") or 0) * (t.get("height") or 0),
+                key=lambda item: (item.get("width") or 0) * (item.get("height") or 0),
                 reverse=True,
             )
             for thumb in thumbs:
@@ -984,35 +917,95 @@ class DownloadFrame(ctk.CTkFrame):
             return f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
         return info.get("thumbnail") or ""
 
-    def _reset_thumbnail(self):
-        self._thumb_image = None
-        self._set_thumbnail_placeholder("Preview")
+    @staticmethod
+    def _analyze_features(info):
+        info_type = info.get("_type") or ""
+        entries = info.get("entries")
+        extractor = (info.get("extractor_key") or info.get("extractor") or "").lower()
+        webpage_url = (info.get("webpage_url") or info.get("original_url") or "").lower()
+        return {
+            "playlist": info_type in {"playlist", "multi_video"} or entries is not None,
+            "subtitles": bool(info.get("subtitles") or info.get("automatic_captions")),
+            "thumbnail": bool(DownloadPage._extract_thumbnail_url(info)),
+            "sponsorblock": "youtube" in extractor or "youtu.be" in webpage_url or "youtube.com" in webpage_url,
+        }
 
-    def _load_thumbnail(self, thumb_url, referer=""):
-        if Image is None:
+    def fetch_info(self):
+        url = self.url_edit.text().strip()
+        if not url:
+            QMessageBox.warning(self, "No URL", "Please paste a media URL first.")
             return
-        threading.Thread(
-            target=self._thumbnail_worker,
-            args=(thumb_url, referer),
-            daemon=True,
-        ).start()
+        self._set_thumbnail_placeholder("Preview")
+        self._set_feature_options({})
+        self.info_title.setText("Analysing media link...")
+        self.info_meta.setText("")
+        self.analyse_btn.setEnabled(False)
+        self.analyse_btn.setText("Analysing...")
+        self.log(f"Fetching info: {url}")
+        playlist = self.playlist_check.isChecked()
+        threading.Thread(target=self._fetch_worker, args=(url, playlist), daemon=True).start()
+
+    def _fetch_worker(self, url, playlist):
+        try:
+            opts = apply_auth_opts(
+                {
+                    "quiet": True,
+                    "no_warnings": True,
+                    "skip_download": True,
+                    "noplaylist": not playlist,
+                },
+                self.app_window.cfg,
+            )
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+            if not info:
+                raise yt_dlp.utils.DownloadError("No media information was returned for this URL.")
+            if not playlist and not info.get("formats") and not info.get("url"):
+                raise yt_dlp.utils.DownloadError("No downloadable video formats were found for this URL.")
+            self.signals.info_ready.emit({"info": info, "url": url})
+        except Exception as exc:
+            self.signals.fetch_error.emit(str(exc))
+
+    def _on_info_ready(self, payload):
+        info = payload["info"]
+        title = info.get("title", "Unknown")
+        uploader = info.get("uploader", "")
+        duration = fmt_duration(info.get("duration"))
+        views = info.get("view_count")
+        formats = len(info.get("formats", []))
+        extractor = info.get("extractor_key") or info.get("extractor") or ""
+        webpage_url = info.get("webpage_url") or payload["url"]
+        views_text = f"{views:,} views" if views else ""
+        parts = [p for p in (extractor, uploader, duration, views_text, f"{formats} formats" if formats else "") if p]
+
+        self.info_title.setText(title)
+        self.info_meta.setText("  ·  ".join(parts))
+        self._set_feature_options(self._analyze_features(info))
+        self.log(f'OK  "{title}"  |  {duration}  |  {formats} formats')
+
+        thumb_url = self._extract_thumbnail_url(info)
+        if thumb_url:
+            threading.Thread(target=self._thumbnail_worker, args=(thumb_url, webpage_url), daemon=True).start()
+        else:
+            self._set_thumbnail_placeholder("No preview")
+        self.analyse_btn.setEnabled(True)
+        self.analyse_btn.setText("Analyse")
+
+    def _on_fetch_error(self, msg):
+        self.log(f"ERROR  {clean_error_text(msg)}")
+        self.analyse_btn.setEnabled(True)
+        self.analyse_btn.setText("Analyse")
+        ErrorDialog(self, msg, fetch=True).exec_()
 
     def _thumbnail_worker(self, thumb_url, referer):
         try:
             raw = self._download_thumbnail_bytes(thumb_url, referer)
-            img = Image.open(io.BytesIO(raw)).convert("RGB")
-            resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
-            img = ImageOps.fit(img, THUMBNAIL_SIZE, method=resample)
-            self.after(0, lambda image=img: self._set_thumbnail(image))
-        except Exception as e:
-            self.after(0, lambda m=str(e): self._log_write(f"Thumbnail unavailable: {m}"))
-            self.after(0, lambda: self._set_thumbnail_placeholder("No preview"))
+            self.signals.thumb_ready.emit(raw)
+        except Exception as exc:
+            self.signals.thumb_failed.emit(str(exc))
 
     def _download_thumbnail_bytes(self, thumb_url, referer):
-        opts = apply_auth_opts({
-            "quiet": True,
-            "no_warnings": True,
-        }, self.app.cfg)
+        opts = apply_auth_opts({"quiet": True, "no_warnings": True}, self.app_window.cfg)
         headers = {"User-Agent": "Mozilla/5.0"}
         if referer:
             headers["Referer"] = referer
@@ -1022,8 +1015,8 @@ class DownloadFrame(ctk.CTkFrame):
             with yt_dlp.YoutubeDL(opts) as ydl:
                 response = ydl.urlopen(urllib.request.Request(thumb_url, headers=headers))
                 return response.read(3 * 1024 * 1024)
-        except Exception as e:
-            last_error = e
+        except Exception as exc:
+            last_error = exc
 
         try:
             req = urllib.request.Request(thumb_url, headers=headers)
@@ -1032,474 +1025,627 @@ class DownloadFrame(ctk.CTkFrame):
         except Exception:
             raise last_error
 
-    def _set_thumbnail(self, image):
-        self._thumb_image = ctk.CTkImage(light_image=image, dark_image=image, size=THUMBNAIL_SIZE)
-        self._thumb_label.configure(image=self._thumb_image, text="")
+    def _set_thumbnail_from_bytes(self, raw):
+        pixmap = QPixmap()
+        if pixmap.loadFromData(raw):
+            self.thumb_pixmap = pixmap.scaled(
+                THUMBNAIL_SIZE,
+                Qt.KeepAspectRatioByExpanding,
+                Qt.SmoothTransformation,
+            )
+            self.thumb_label.setPixmap(self.thumb_pixmap)
+            self.thumb_label.setText("")
+        else:
+            self._set_thumbnail_placeholder("No preview")
 
-    def _set_thumbnail_placeholder(self, label):
-        self._thumb_image = None
-        self._thumb_label.configure(
-            image=None,
-            text=f"▶\n{label}",
-            text_color=TXT_DIM,
-            font=ctk.CTkFont("Segoe UI", 12, weight="bold"),
-        )
+    def _on_thumb_failed(self, msg):
+        self.log(f"Thumbnail unavailable: {msg}")
+        self._set_thumbnail_placeholder("No preview")
 
-    def _show_error(self, raw_msg, fetch=False):
-        clean = clean_error_text(raw_msg)
-        title, message, suggestions = classify_error(clean)
-        if fetch and title == "Download failed":
-            title = "Could not fetch media"
-            message = "MediaFlow could not read downloadable media information from this link."
-        ErrorDialog(self, title, message, details=clean, suggestions=suggestions)
+    def _set_thumbnail_placeholder(self, text):
+        self.thumb_pixmap = None
+        self.thumb_label.setPixmap(QPixmap())
+        self.thumb_label.setText(f"Play\n{text}")
 
-    # ── Download ──────────────────────────────────────────────────────────────
-    def _start_download(self):
-        url = self._url_var.get().strip()
+    def start_download(self):
+        url = self.url_edit.text().strip()
         if not url:
-            messagebox.showwarning("No URL", "Please paste a media URL first.")
+            QMessageBox.warning(self, "No URL", "Please paste a media URL first.")
             return
-        # Safe check — _download_thread always exists (set in __init__)
-        if self._download_thread is not None and self._download_thread.is_alive():
-            messagebox.showinfo("Busy", "A download is already in progress.")
+        if self.download_thread is not None and self.download_thread.is_alive():
+            QMessageBox.information(self, "Busy", "A download is already in progress.")
             return
 
-        self._cancel_flag.clear()
-        self._progress.set(0)
-        self._status_var.set("Starting download…")
-        self._speed_var.set("")
-        self._eta_var.set("")
-        self._dl_btn.configure(state="disabled")
-        self._cancel_btn.configure(state="normal")
+        self.cancel_event.clear()
+        self.progress.setValue(0)
+        self.status_label.setText("Starting download...")
+        self.speed_label.setText("")
+        self.eta_label.setText("")
+        self.download_btn.setEnabled(False)
+        self.cancel_btn.setEnabled(True)
 
-        ext      = self._fmt_var.get()
-        quality  = self._qual_var.get()
-        is_audio = self._type_var.get() == "Audio"
-        out_dir  = self.app.cfg["output_dir"]
+        ext = self.format_combo.currentText()
+        quality = self.quality_combo.currentText()
+        is_audio = self.audio_radio.isChecked()
         options = {
-            "subs": self._subs_var.get(),
-            "embed_thumb": self._thumb_var.get(),
-            "sponsor_block": self._sponsor_var.get(),
-            "playlist": self._playlist_var.get(),
+            "subs": self.subs_check.isChecked(),
+            "embed_thumb": self.thumb_check.isChecked(),
+            "sponsor_block": self.sponsor_check.isChecked(),
+            "playlist": self.playlist_check.isChecked(),
         }
+        self.log(
+            f"Starting  [{'Audio' if is_audio else 'Video'}]  [{quality}]  [.{ext}]  "
+            f"{'playlist' if options['playlist'] else 'single'}"
+        )
+        self.download_thread = threading.Thread(
+            target=self._download_worker,
+            args=(url, self.app_window.cfg["output_dir"], ext, quality, is_audio, options),
+            daemon=True,
+        )
+        self.download_thread.start()
 
-        self._log_write(
-            f"Starting  [{self._type_var.get()}]  [{quality}]  [.{ext}]  "
-            f"{'playlist' if options['playlist'] else 'single'}")
+    def _download_worker(self, url, out_dir, ext, quality, is_audio, options):
+        start = time.time()
 
-        self._download_thread = threading.Thread(
-            target=self._dl_worker,
-            args=(url, out_dir, ext, quality, is_audio, options),
-            daemon=True)
-        self._download_thread.start()
-
-    def _dl_worker(self, url, out_dir, ext, quality, is_audio, options):
-        t0 = time.time()
-
-        def hook(d):
-            if self._cancel_flag.is_set():
+        def hook(data):
+            if self.cancel_event.is_set():
                 raise yt_dlp.utils.DownloadError("Cancelled by user")
-            st = d.get("status")
-            if st == "downloading":
-                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
-                done  = d.get("downloaded_bytes", 0)
-                speed = d.get("speed") or 0
-                eta   = d.get("eta") or 0
-                pct   = done / total if total else 0
-                pct_s = f"Downloading {pct*100:.1f}%  {fmt_size(done)} / {fmt_size(total)}"
-                spd_s = f"{speed/1024/1024:.1f} MB/s" if speed else ""
-                eta_s = f"ETA {eta}s" if eta else ""
-                self.after(0, lambda p=pct:   self._progress.set(p))
-                self.after(0, lambda s=pct_s: self._status_var.set(s))
-                self.after(0, lambda s=spd_s: self._speed_var.set(s))
-                self.after(0, lambda s=eta_s: self._eta_var.set(s))
-            elif st == "finished":
-                self.after(0, lambda: self._status_var.set("Processing / merging…"))
-                self.after(0, lambda: self._progress.set(0.99))
+            status = data.get("status")
+            if status == "downloading":
+                total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
+                done = data.get("downloaded_bytes", 0)
+                speed = data.get("speed") or 0
+                eta = data.get("eta") or 0
+                pct = done / total if total else 0
+                pct_text = f"Downloading {pct * 100:.1f}%  {fmt_size(done)} / {fmt_size(total)}"
+                speed_text = f"{speed / 1024 / 1024:.1f} MB/s" if speed else ""
+                eta_text = f"ETA {eta}s" if eta else ""
+                self.signals.progress.emit(pct, pct_text, speed_text, eta_text)
+            elif status == "finished":
+                self.signals.progress.emit(0.99, "Processing / merging...", "", "")
 
         try:
             opts = build_ydl_opts(
-                self.app.cfg, out_dir, ext, quality, is_audio, hook,
+                self.app_window.cfg,
+                out_dir,
+                ext,
+                quality,
+                is_audio,
+                hook,
                 subs=options["subs"],
                 embed_thumb=options["embed_thumb"],
                 sponsor_block=options["sponsor_block"],
-                playlist=options["playlist"])
+                playlist=options["playlist"],
+            )
             with yt_dlp.YoutubeDL(opts) as ydl:
-                info  = ydl.extract_info(url)
+                info = ydl.extract_info(url)
                 title = (info.get("title") or url) if info else url
-            elapsed = time.time() - t0
-            self.after(0, lambda: self._on_done(title, url, ext, is_audio, elapsed))
-        except yt_dlp.utils.DownloadError as e:
-            msg = str(e)
-            if "Cancelled" in msg:
-                self.after(0, self._on_cancelled)
+            elapsed = time.time() - start
+            self.signals.done.emit(title, url, ext, is_audio, elapsed)
+        except yt_dlp.utils.DownloadError as exc:
+            if "Cancelled" in str(exc):
+                self.signals.cancelled.emit()
             else:
-                self.after(0, lambda m=msg: self._on_error(m))
-        except Exception as e:
-            self.after(0, lambda m=str(e): self._on_error(m))
+                self.signals.download_error.emit(str(exc))
+        except Exception as exc:
+            self.signals.download_error.emit(str(exc))
+
+    def _on_progress(self, pct, status, speed, eta):
+        self.progress.setValue(max(0, min(1000, int(pct * 1000))))
+        self.status_label.setText(status)
+        self.speed_label.setText(speed)
+        self.eta_label.setText(eta)
 
     def _on_done(self, title, url, ext, is_audio, elapsed):
-        self._progress.set(1.0)
-        self._status_var.set(f"✓  Completed in {elapsed:.1f}s")
-        self._speed_var.set("")
-        self._eta_var.set("")
-        self._dl_btn.configure(state="normal")
-        self._cancel_btn.configure(state="disabled")
-        self._log_write(f'DONE  "{title}"  ({elapsed:.1f}s)')
-        self.app.add_history({
-            "title":     title,
-            "url":       url,
-            "ext":       ext,
-            "type":      "Audio" if is_audio else "Video",
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        })
-
-    def _on_error(self, msg):
-        clean = clean_error_text(msg)
-        self._status_var.set("✗  Download failed")
-        self._speed_var.set("")
-        self._eta_var.set("")
-        self._dl_btn.configure(state="normal")
-        self._cancel_btn.configure(state="disabled")
-        self._log_write(f"ERROR  {clean}")
-        self._show_error(clean)
+        self.progress.setValue(1000)
+        self.status_label.setText(f"Completed in {elapsed:.1f}s")
+        self.speed_label.setText("")
+        self.eta_label.setText("")
+        self.download_btn.setEnabled(True)
+        self.cancel_btn.setEnabled(False)
+        self.log(f'DONE  "{title}"  ({elapsed:.1f}s)')
+        self.app_window.add_history(
+            {
+                "title": title,
+                "url": url,
+                "ext": ext,
+                "type": "Audio" if is_audio else "Video",
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            }
+        )
 
     def _on_cancelled(self):
-        self._progress.set(0)
-        self._status_var.set("Cancelled")
-        self._speed_var.set("")
-        self._eta_var.set("")
-        self._dl_btn.configure(state="normal")
-        self._cancel_btn.configure(state="disabled")
-        self._log_write("CANCELLED  Download stopped by user")
+        self.progress.setValue(0)
+        self.status_label.setText("Cancelled")
+        self.download_btn.setEnabled(True)
+        self.cancel_btn.setEnabled(False)
+        self.log("CANCELLED  Download stopped by user")
 
-    def _cancel(self):
-        self._cancel_flag.set()
-        self._status_var.set("Cancelling…")
+    def _on_download_error(self, msg):
+        clean = clean_error_text(msg)
+        self.status_label.setText("Download failed")
+        self.speed_label.setText("")
+        self.eta_label.setText("")
+        self.download_btn.setEnabled(True)
+        self.cancel_btn.setEnabled(False)
+        self.log(f"ERROR  {clean}")
+        ErrorDialog(self, clean, fetch=False).exec_()
 
-    def _open_folder(self):
-        d = self.app.cfg["output_dir"]
+    def cancel_download(self):
+        self.cancel_event.set()
+        self.status_label.setText("Cancelling...")
+
+    def open_folder(self):
+        directory = self.app_window.cfg["output_dir"]
         try:
             if sys.platform == "win32":
-                os.startfile(d)
+                os.startfile(directory)
             elif sys.platform == "darwin":
-                subprocess.Popen(["open", d])
+                subprocess.Popen(["open", directory])
             else:
-                subprocess.Popen(["xdg-open", d])
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
+                subprocess.Popen(["xdg-open", directory])
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", str(exc))
+
+    def apply_palette(self, palette):
+        pass
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  History Frame
-# ═══════════════════════════════════════════════════════════════════════════════
-class HistoryFrame(ctk.CTkFrame):
-    NAME = "History"
-
-    def __init__(self, parent, app: MediaFlowApp):
-        super().__init__(parent, fg_color=BG_ROOT, corner_radius=0)
-        self.app = app
+class HistoryPage(QWidget):
+    def __init__(self, app_window):
+        super().__init__()
+        self.setObjectName("page")
+        self.app_window = app_window
         self._all = []
         self._build()
 
     def _build(self):
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(3, weight=1)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        topbar = ctk.CTkFrame(self, fg_color=BG_PANEL, corner_radius=0, height=60)
-        topbar.grid(row=0, column=0, sticky="ew")
-        topbar.grid_propagate(False)
-        topbar.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(topbar, text="Download History",
-                     font=ctk.CTkFont("Segoe UI", 16, weight="bold"),
-                     text_color=TXT_PRI
-                     ).grid(row=0, column=0, padx=24, pady=(10,2), sticky="w")
-        ctk.CTkLabel(topbar, text="All previous downloads, searchable and re-downloadable",
-                     font=ctk.CTkFont("Segoe UI", 11), text_color=TXT_SEC
-                     ).grid(row=1, column=0, padx=24, pady=(0,10), sticky="w")
-        ctk.CTkButton(topbar, text="Clear All", width=90, height=30,
-                      font=ctk.CTkFont("Segoe UI", 11),
-                      fg_color=BG_CARD, hover_color=BORDER,
-                      text_color=ERROR, corner_radius=8,
-                      command=self._clear_all
-                      ).grid(row=0, column=1, rowspan=2, padx=20)
+        topbar = QFrame()
+        topbar.setObjectName("topbar")
+        topbar.setFixedHeight(70)
+        top = QHBoxLayout(topbar)
+        top.setContentsMargins(28, 12, 28, 12)
+        labels = QVBoxLayout()
+        title = QLabel("Download History")
+        title.setObjectName("pageTitle")
+        subtitle = QLabel("All previous downloads, searchable and re-downloadable")
+        subtitle.setObjectName("muted")
+        labels.addWidget(title)
+        labels.addWidget(subtitle)
+        clear = QPushButton("Clear All")
+        clear.setObjectName("dangerButton")
+        clear.clicked.connect(self.clear_all)
+        top.addLayout(labels, 1)
+        top.addWidget(clear)
+        root.addWidget(topbar)
 
-        # Stats
-        stats_card = ctk.CTkFrame(self, fg_color=BG_CARD, corner_radius=8)
-        stats_card.grid(row=1, column=0, sticky="ew", padx=24, pady=(14,6))
-        self._stats_lbl = ctk.CTkLabel(
-            stats_card, text="No downloads yet",
-            font=ctk.CTkFont("Segoe UI", 11), text_color=TXT_SEC)
-        self._stats_lbl.grid(padx=14, pady=10, sticky="w")
-
-        # Search
-        search_frame = ctk.CTkFrame(self, fg_color="transparent")
-        search_frame.grid(row=2, column=0, sticky="ew", padx=24, pady=(0,8))
-        search_frame.grid_columnconfigure(0, weight=1)
-        self._q = ctk.StringVar()
-        self._q.trace_add("write", lambda *_: self._render_filtered())
-        ctk.CTkEntry(search_frame, textvariable=self._q,
-                     placeholder_text="Search by title…",
-                     height=36, fg_color=BG_CARD, border_color=BORDER,
-                     text_color=TXT_PRI, placeholder_text_color=TXT_DIM,
-                     corner_radius=8).grid(row=0, column=0, sticky="ew")
-
-        # List
-        self._list = ctk.CTkScrollableFrame(
-            self, fg_color="transparent",
-            scrollbar_button_color=BG_CARD,
-            scrollbar_button_hover_color=BORDER)
-        self._list.grid(row=3, column=0, sticky="nsew", padx=24, pady=(0,16))
-        self._list.grid_columnconfigure(0, weight=1)
+        body = QVBoxLayout()
+        body.setContentsMargins(24, 18, 24, 20)
+        body.setSpacing(12)
+        self.stats = QLabel("No downloads yet")
+        self.stats.setObjectName("muted")
+        stats_card = make_card()
+        stats_layout = QVBoxLayout(stats_card)
+        stats_layout.addWidget(self.stats)
+        self.search = QLineEdit()
+        self.search.setMinimumHeight(40)
+        self.search.setPlaceholderText("Search by title or URL...")
+        self.search.textChanged.connect(self._render)
+        self.list = QListWidget()
+        self.list.setObjectName("historyList")
+        self.list.itemDoubleClicked.connect(self.redownload)
+        body.addWidget(stats_card)
+        body.addWidget(self.search)
+        body.addWidget(self.list, 1)
+        root.addLayout(body, 1)
 
     def refresh(self, history):
-        self._all = history
-        n   = len(history)
-        n_v = sum(1 for h in history if h.get("type") == "Video")
-        n_a = n - n_v
-        txt = f"{n} total  ·  {n_v} video(s)  ·  {n_a} audio file(s)"
-        self._stats_lbl.configure(text=txt if n else "No downloads yet")
-        self._render_filtered()
+        self._all = list(history)
+        n = len(self._all)
+        n_video = sum(1 for item in self._all if item.get("type") == "Video")
+        n_audio = n - n_video
+        self.stats.setText(f"{n} total  ·  {n_video} video(s)  ·  {n_audio} audio file(s)" if n else "No downloads yet")
+        self._render()
 
-    def _render_filtered(self):
-        q = self._q.get().lower()
-        items = [h for h in self._all
-                 if q in h.get("title","").lower() or q in h.get("url","").lower()]
-        for w in self._list.winfo_children():
-            w.destroy()
+    def _render(self):
+        query = self.search.text().lower()
+        items = [
+            item
+            for item in self._all
+            if query in item.get("title", "").lower() or query in item.get("url", "").lower()
+        ]
+        self.list.clear()
         if not items:
-            ctk.CTkLabel(self._list,
-                         text="No results." if q else
-                              "No downloads yet.\nStart downloading to build history.",
-                         text_color=TXT_DIM, font=ctk.CTkFont("Segoe UI", 12),
-                         justify="center").grid(pady=48)
+            self.list.addItem("No results." if query else "No downloads yet. Start downloading to build history.")
             return
-        for i, entry in enumerate(items):
-            self._row(i, entry)
+        for entry in items:
+            text = (
+                f"{entry.get('title', 'Unknown')}\n"
+                f".{entry.get('ext', '')}  ·  {entry.get('type', '')}  ·  {entry.get('timestamp', '')}"
+            )
+            item = QListWidgetItem(text)
+            item.setData(Qt.UserRole, entry.get("url", ""))
+            item.setSizeHint(QSize(100, 72))
+            self.list.addItem(item)
 
-    def _row(self, i, entry):
-        card = ctk.CTkFrame(self._list, fg_color=BG_CARD, corner_radius=8)
-        card.grid(row=i, column=0, sticky="ew", pady=(0,4))
-        card.grid_columnconfigure(1, weight=1)
+    def redownload(self, item):
+        url = item.data(Qt.UserRole)
+        if url:
+            self.app_window.download_page.url_edit.setText(url)
+            self.app_window.navigate("Download")
 
-        is_audio = entry.get("type") == "Audio"
-        badge = ctk.CTkFrame(card,
-                             width=52, height=52, corner_radius=6,
-                             fg_color="#1A2E44" if not is_audio else "#1A2E2A")
-        badge.grid(row=0, column=0, rowspan=2, padx=10, pady=10)
-        badge.grid_propagate(False)
-        ctk.CTkLabel(badge, text="🎵" if is_audio else "🎬",
-                     font=ctk.CTkFont("Segoe UI", 22)
-                     ).place(relx=.5, rely=.5, anchor="center")
-
-        ctk.CTkLabel(card, text=entry.get("title","Unknown"),
-                     font=ctk.CTkFont("Segoe UI", 12, weight="bold"),
-                     text_color=TXT_PRI, wraplength=500, justify="left", anchor="w"
-                     ).grid(row=0, column=1, sticky="w", padx=8, pady=(10,2))
-
-        meta = (f".{entry.get('ext','')}  ·  "
-                f"{entry.get('type','')}  ·  "
-                f"{entry.get('timestamp','')}")
-        ctk.CTkLabel(card, text=meta,
-                     font=ctk.CTkFont("Segoe UI", 10), text_color=TXT_DIM, anchor="w"
-                     ).grid(row=1, column=1, sticky="w", padx=8, pady=(0,10))
-
-        url = entry.get("url","")
-        ctk.CTkButton(card, text="↻ Re-download", width=120, height=32,
-                      font=ctk.CTkFont("Segoe UI", 11),
-                      fg_color=BG_INPUT, hover_color=BORDER,
-                      text_color=ACCENT, border_color=ACCENT, border_width=1,
-                      corner_radius=6,
-                      command=lambda u=url: self._redownload(u)
-                      ).grid(row=0, column=2, rowspan=2, padx=10)
-
-    def _redownload(self, url):
-        self.app._frames["Download"]._url_var.set(url)
-        self.app._nav("Download")
-
-    def _clear_all(self):
-        if messagebox.askyesno("Clear History",
-                               "Delete all download history?\nThis cannot be undone."):
-            self.app.history.clear()
+    def clear_all(self):
+        if QMessageBox.question(self, "Clear History", "Delete all download history?") == QMessageBox.Yes:
+            self.app_window.history.clear()
             save_history([])
             self.refresh([])
 
+    def apply_palette(self, palette):
+        pass
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#  Settings Frame
-# ═══════════════════════════════════════════════════════════════════════════════
-class SettingsFrame(ctk.CTkFrame):
-    NAME = "Settings"
 
-    def __init__(self, parent, app: MediaFlowApp):
-        super().__init__(parent, fg_color=BG_ROOT, corner_radius=0)
-        self.app = app
+class SettingsPage(QWidget):
+    def __init__(self, app_window):
+        super().__init__()
+        self.setObjectName("page")
+        self.app_window = app_window
         self._build()
 
     def _build(self):
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        topbar = ctk.CTkFrame(self, fg_color=BG_PANEL, corner_radius=0, height=60)
-        topbar.grid(row=0, column=0, sticky="ew")
-        topbar.grid_propagate(False)
-        topbar.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(topbar, text="Settings",
-                     font=ctk.CTkFont("Segoe UI", 16, weight="bold"),
-                     text_color=TXT_PRI
-                     ).grid(row=0, column=0, padx=24, pady=(10,2), sticky="w")
-        ctk.CTkLabel(topbar, text="Configure your preferences and defaults",
-                     font=ctk.CTkFont("Segoe UI", 11), text_color=TXT_SEC
-                     ).grid(row=1, column=0, padx=24, pady=(0,10), sticky="w")
+        topbar = QFrame()
+        topbar.setObjectName("topbar")
+        topbar.setFixedHeight(70)
+        top_layout = QVBoxLayout(topbar)
+        top_layout.setContentsMargins(28, 12, 28, 12)
+        title = QLabel("Settings")
+        title.setObjectName("pageTitle")
+        subtitle = QLabel("Configure preferences and apply them to the running app")
+        subtitle.setObjectName("muted")
+        top_layout.addWidget(title)
+        top_layout.addWidget(subtitle)
+        root.addWidget(topbar)
 
-        body = ctk.CTkScrollableFrame(self, fg_color="transparent",
-                                      scrollbar_button_color=BG_CARD)
-        body.grid(row=1, column=0, sticky="nsew", padx=24, pady=16)
-        body.grid_columnconfigure(1, weight=1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setObjectName("scrollArea")
+        body = QWidget()
+        body.setObjectName("scrollBody")
+        form = QGridLayout(body)
+        form.setContentsMargins(28, 22, 28, 24)
+        form.setHorizontalSpacing(22)
+        form.setVerticalSpacing(14)
+        scroll.setWidget(body)
+        root.addWidget(scroll, 1)
 
-        r = [0]
+        row = 0
+        row = self._section(form, row, "OUTPUT")
+        self.dir_edit = QLineEdit()
+        self.dir_edit.setMinimumHeight(38)
+        browse = QPushButton("Browse")
+        browse.setObjectName("secondaryButton")
+        browse.setMinimumHeight(38)
+        browse.clicked.connect(self.browse_dir)
+        dir_row = QHBoxLayout()
+        dir_row.addWidget(self.dir_edit, 1)
+        dir_row.addWidget(browse)
+        self._add_row(form, row, "Save Location", dir_row)
+        row += 1
 
-        def sec(title):
-            f = ctk.CTkFrame(body, fg_color="transparent")
-            f.grid(row=r[0], column=0, columnspan=2,
-                   sticky="ew", padx=4, pady=(20 if r[0] > 0 else 0, 6))
-            f.grid_columnconfigure(1, weight=1)
-            ctk.CTkLabel(f, text=title,
-                         font=ctk.CTkFont("Segoe UI", 10, weight="bold"),
-                         text_color=ACCENT).grid(row=0, column=0, sticky="w")
-            ctk.CTkFrame(f, height=1, fg_color=BORDER
-                         ).grid(row=0, column=1, sticky="ew", padx=(10,0))
-            r[0] += 1
+        self.history_edit = QLineEdit()
+        self.history_edit.setMinimumHeight(36)
+        self.history_edit.setMaximumWidth(100)
+        self._add_row(form, row, "Max History Entries", self.history_edit)
+        row += 1
 
-        def lbl(text):
-            ctk.CTkLabel(body, text=text,
-                         font=ctk.CTkFont("Segoe UI", 12),
-                         text_color=TXT_SEC, anchor="w"
-                         ).grid(row=r[0], column=0, sticky="w", padx=4, pady=8)
+        self.concurrent_combo = QComboBox()
+        self.concurrent_combo.setMinimumHeight(36)
+        self.concurrent_combo.addItems(["1", "2", "4", "8", "16"])
+        self.concurrent_combo.setMaximumWidth(120)
+        self._add_row(form, row, "Concurrent Fragments", self.concurrent_combo)
+        row += 1
 
-        def wgt(widget, pady=8):
-            widget.grid(row=r[0], column=1, sticky="e", padx=4, pady=pady)
-            r[0] += 1
+        row = self._section(form, row, "ADVANCED")
+        self.ffmpeg_edit = QLineEdit()
+        self.ffmpeg_edit.setMinimumHeight(38)
+        self.ffmpeg_edit.setPlaceholderText(r"e.g. C:\ffmpeg\bin")
+        self._add_row(form, row, "FFmpeg Path (blank = auto-detect)", self.ffmpeg_edit)
+        row += 1
 
-        entry_kw = dict(fg_color=BG_INPUT, border_color=BORDER,
-                        text_color=TXT_PRI, corner_radius=6)
-        menu_kw  = dict(fg_color=BG_INPUT, button_color=BG_INPUT,
-                        button_hover_color=BORDER, dropdown_fg_color=BG_CARD,
-                        text_color=TXT_PRI)
+        self.cookie_edit = QLineEdit()
+        self.cookie_edit.setMinimumHeight(38)
+        self.cookie_edit.setPlaceholderText("cookies.txt for login-required sites")
+        cookie_browse = QPushButton("Browse")
+        cookie_browse.setObjectName("secondaryButton")
+        cookie_browse.setMinimumHeight(38)
+        cookie_browse.clicked.connect(self.browse_cookie)
+        cookie_row = QHBoxLayout()
+        cookie_row.addWidget(self.cookie_edit, 1)
+        cookie_row.addWidget(cookie_browse)
+        self._add_row(form, row, "Cookie File (optional)", cookie_row)
+        row += 1
 
-        # OUTPUT
-        sec("OUTPUT")
-        lbl("Save Location")
-        dir_f = ctk.CTkFrame(body, fg_color="transparent")
-        dir_f.grid(row=r[0], column=1, sticky="e", padx=4, pady=8)
-        self._dir_var = ctk.StringVar(value=self.app.cfg["output_dir"])
-        ctk.CTkEntry(dir_f, textvariable=self._dir_var, width=300,
-                     **entry_kw).grid(row=0, column=0)
-        ctk.CTkButton(dir_f, text="Browse", width=72, height=32,
-                      fg_color=BG_CARD, hover_color=BORDER,
-                      text_color=TXT_SEC, corner_radius=6,
-                      command=self._browse).grid(row=0, column=1, padx=(6,0))
-        r[0] += 1
+        self.browser_combo = QComboBox()
+        self.browser_combo.setMinimumHeight(36)
+        self.browser_combo.addItems(BROWSER_COOKIE_SOURCES)
+        self.browser_combo.setMaximumWidth(160)
+        self._add_row(form, row, "Use Browser Cookies", self.browser_combo)
+        row += 1
 
-        lbl("Max History Entries")
-        self._hist_var = ctk.StringVar(value=str(self.app.cfg.get("max_history",100)))
-        wgt(ctk.CTkEntry(body, textvariable=self._hist_var, width=80, **entry_kw))
+        row = self._section(form, row, "APPEARANCE")
+        self.theme_combo = QComboBox()
+        self.theme_combo.setMinimumHeight(36)
+        self.theme_combo.addItems(["light", "dark", "system"])
+        self.theme_combo.setMaximumWidth(160)
+        self.theme_combo.currentTextChanged.connect(self.preview_theme)
+        self._add_row(form, row, "Theme", self.theme_combo)
+        row += 1
 
-        lbl("Concurrent Fragments")
-        self._conc_var = ctk.StringVar(value=str(self.app.cfg.get("concurrent","1")))
-        wgt(ctk.CTkOptionMenu(body, variable=self._conc_var,
-                              values=["1","2","4","8","16"], width=80, **menu_kw))
+        about = make_card()
+        about_layout = QVBoxLayout(about)
+        about_layout.setContentsMargins(18, 14, 18, 14)
+        about_layout.addWidget(QLabel(f"{APP_NAME}  ·  Version {VERSION}"))
+        about_layout.addWidget(QLabel("Powered by yt-dlp  ·  PyQt5  ·  Python 3"))
+        form.addWidget(about, row, 0, 1, 2)
+        row += 1
 
-        # ADVANCED
-        sec("ADVANCED")
-        lbl("FFmpeg Path  (blank = auto-detect)")
-        self._ffmpeg_var = ctk.StringVar(value=self.app.cfg.get("ffmpeg_path",""))
-        wgt(ctk.CTkEntry(body, textvariable=self._ffmpeg_var, width=380,
-                         placeholder_text="e.g. C:\\ffmpeg\\bin",
-                         placeholder_text_color=TXT_DIM, **entry_kw))
+        save = QPushButton("Save Settings")
+        save.setObjectName("primaryButton")
+        save.setMinimumHeight(48)
+        save.clicked.connect(self.save)
+        form.addWidget(save, row, 0, 1, 2)
+        form.setRowStretch(row + 1, 1)
+        self.sync_from_config()
 
-        lbl("Cookie File  (optional)")
-        cookie_f = ctk.CTkFrame(body, fg_color="transparent")
-        cookie_f.grid(row=r[0], column=1, sticky="e", padx=4, pady=8)
-        self._cookie_var = ctk.StringVar(value=self.app.cfg.get("cookie_file",""))
-        ctk.CTkEntry(cookie_f, textvariable=self._cookie_var, width=300,
-                     placeholder_text="cookies.txt for login-required sites",
-                     placeholder_text_color=TXT_DIM, **entry_kw).grid(row=0, column=0)
-        ctk.CTkButton(cookie_f, text="Browse", width=72, height=32,
-                      fg_color=BG_CARD, hover_color=BORDER,
-                      text_color=TXT_SEC, corner_radius=6,
-                      command=self._browse_cookie).grid(row=0, column=1, padx=(6,0))
-        r[0] += 1
+    @staticmethod
+    def _section(form, row, title):
+        label = QLabel(title)
+        label.setObjectName("sectionLabel")
+        form.addWidget(label, row, 0, 1, 2)
+        return row + 1
 
-        lbl("Use Browser Cookies")
-        self._browser_cookie_var = ctk.StringVar(
-            value=self.app.cfg.get("browser_cookies","None"))
-        wgt(ctk.CTkOptionMenu(body, variable=self._browser_cookie_var,
-                              values=BROWSER_COOKIE_SOURCES, width=130, **menu_kw))
+    @staticmethod
+    def _add_row(form, row, label_text, widget_or_layout):
+        label = QLabel(label_text)
+        label.setObjectName("muted")
+        form.addWidget(label, row, 0)
+        if isinstance(widget_or_layout, QHBoxLayout):
+            form.addLayout(widget_or_layout, row, 1)
+        else:
+            form.addWidget(widget_or_layout, row, 1)
 
-        # APPEARANCE
-        sec("APPEARANCE")
-        lbl("Theme")
-        self._theme_var = ctk.StringVar(value=self.app.cfg["theme"])
-        wgt(ctk.CTkSegmentedButton(body, values=["light","dark","system"],
-                                   variable=self._theme_var,
-                                   font=ctk.CTkFont("Segoe UI", 11)))
+    def sync_from_config(self):
+        cfg = self.app_window.cfg
+        self.dir_edit.setText(cfg["output_dir"])
+        self.history_edit.setText(str(cfg.get("max_history", 100)))
+        self.concurrent_combo.setCurrentText(str(cfg.get("concurrent", "1")))
+        self.ffmpeg_edit.setText(cfg.get("ffmpeg_path", ""))
+        self.cookie_edit.setText(cfg.get("cookie_file", ""))
+        self.browser_combo.setCurrentText(cfg.get("browser_cookies", "None"))
+        self.theme_combo.blockSignals(True)
+        self.theme_combo.setCurrentText(cfg.get("theme", "dark"))
+        self.theme_combo.blockSignals(False)
 
-        # ABOUT
-        sec("ABOUT")
-        about = ctk.CTkFrame(body, fg_color=BG_CARD, corner_radius=8)
-        about.grid(row=r[0], column=0, columnspan=2, sticky="ew", padx=4, pady=6)
-        about.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(about, text=f"{APP_NAME}  ·  Version {VERSION}",
-                     font=ctk.CTkFont("Segoe UI", 13, weight="bold"),
-                     text_color=TXT_PRI).grid(padx=14, pady=(12,2), sticky="w")
-        ctk.CTkLabel(about, text="Powered by yt-dlp  ·  CustomTkinter  ·  Python 3",
-                     font=ctk.CTkFont("Segoe UI", 11), text_color=TXT_SEC
-                     ).grid(padx=14, pady=(0,4), sticky="w")
-        ctk.CTkLabel(about,
-                     text="⚠  ffmpeg is required for merging video/audio and converting formats.",
-                     font=ctk.CTkFont("Segoe UI", 10), text_color=WARN
-                     ).grid(padx=14, pady=(0,12), sticky="w")
-        r[0] += 1
+    def preview_theme(self, theme):
+        self.app_window.apply_theme(theme)
 
-        # Save
-        ctk.CTkButton(body, text="  💾   Save Settings  ", height=44,
-                      font=ctk.CTkFont("Segoe UI", 13, weight="bold"),
-                      fg_color=ACCENT, hover_color="#1D65CA", corner_radius=10,
-                      command=self._save
-                      ).grid(row=r[0], column=0, columnspan=2,
-                             sticky="ew", padx=4, pady=(20,8))
+    def browse_dir(self):
+        directory = QFileDialog.getExistingDirectory(self, "Select save folder", self.dir_edit.text())
+        if directory:
+            self.dir_edit.setText(directory)
 
-    def _browse(self):
-        d = filedialog.askdirectory(initialdir=self._dir_var.get())
-        if d:
-            self._dir_var.set(d)
+    def browse_cookie(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Select cookies.txt", "", "Cookie files (*.txt);;All files (*)")
+        if path:
+            self.cookie_edit.setText(path)
 
-    def _browse_cookie(self):
-        f = filedialog.askopenfilename(
-            title="Select cookies.txt",
-            filetypes=[("Cookie files", "*.txt"), ("All files", "*.*")],
-        )
-        if f:
-            self._cookie_var.set(f)
-
-    def _save(self):
-        self.app.cfg["output_dir"]  = self._dir_var.get()
-        self.app.cfg["ffmpeg_path"] = self._ffmpeg_var.get()
-        self.app.cfg["theme"]       = self._theme_var.get()
-        self.app.cfg["concurrent"]  = self._conc_var.get()
-        self.app.cfg["cookie_file"] = self._cookie_var.get()
-        self.app.cfg["browser_cookies"] = self._browser_cookie_var.get()
+    def save(self):
+        cfg = self.app_window.cfg
+        cfg["output_dir"] = self.dir_edit.text().strip() or DEFAULT_CONFIG["output_dir"]
+        cfg["ffmpeg_path"] = self.ffmpeg_edit.text().strip()
+        cfg["theme"] = self.theme_combo.currentText()
+        cfg["concurrent"] = self.concurrent_combo.currentText()
+        cfg["cookie_file"] = self.cookie_edit.text().strip()
+        cfg["browser_cookies"] = self.browser_combo.currentText()
         try:
-            self.app.cfg["max_history"] = int(self._hist_var.get())
+            cfg["max_history"] = max(1, int(self.history_edit.text()))
         except ValueError:
-            pass
-        save_config(self.app.cfg)
-        self.app.apply_runtime_settings()
-        messagebox.showinfo("Saved", "Settings applied to the running app.")
+            cfg["max_history"] = DEFAULT_CONFIG["max_history"]
+            self.history_edit.setText(str(cfg["max_history"]))
+        save_config(cfg)
+        self.app_window.apply_runtime_settings()
+        QMessageBox.information(self, "Saved", "Settings applied to the running app.")
+
+    def apply_palette(self, palette):
+        pass
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+def build_stylesheet(p):
+    return f"""
+    QMainWindow, QWidget#appRoot, QWidget#page, QStackedWidget#contentStack, QWidget#scrollBody {{
+        background: {p['root']};
+        color: {p['text']};
+        font-family: Segoe UI, Arial;
+        font-size: 13px;
+    }}
+    QLabel {{
+        background: transparent;
+        color: {p['text']};
+    }}
+    #sidebar, #topbar {{
+        background: {p['panel']};
+    }}
+    #scrollArea {{
+        border: none;
+        background: {p['root']};
+    }}
+    QScrollArea > QWidget > QWidget {{
+        background: {p['root']};
+    }}
+    #card {{
+        background: {p['card']};
+        border: 1px solid {p['border']};
+        border-radius: 8px;
+    }}
+    #brand {{
+        color: {p['text']};
+        font-size: 24px;
+        font-weight: 700;
+    }}
+    #pageTitle {{
+        color: {p['text']};
+        font-size: 19px;
+        font-weight: 700;
+    }}
+    #infoTitle {{
+        color: {p['text']};
+        font-size: 14px;
+        font-weight: 700;
+    }}
+    #muted, QLabel#muted {{
+        color: {p['muted']};
+    }}
+    #mutedSmall, QLabel#mutedSmall {{
+        color: {p['dim']};
+        font-size: 11px;
+    }}
+    #eyebrow, #sectionLabel {{
+        color: {p['dim']};
+        font-size: 11px;
+        font-weight: 700;
+    }}
+    QLineEdit, QComboBox, QTextEdit {{
+        background: {p['input']};
+        color: {p['text']};
+        border: 1px solid {p['border']};
+        border-radius: 7px;
+        padding: 8px 10px;
+        selection-background-color: {p['accent']};
+    }}
+    QComboBox::drop-down {{
+        border: none;
+        width: 22px;
+    }}
+    QPushButton {{
+        background: {p['input']};
+        color: {p['muted']};
+        border: 1px solid {p['border']};
+        border-radius: 7px;
+        padding: 9px 15px;
+        font-size: 13px;
+    }}
+    QPushButton:hover {{
+        background: {p['border']};
+    }}
+    QPushButton#primaryButton {{
+        background: {p['accent']};
+        border-color: {p['accent']};
+        color: white;
+        font-weight: 700;
+    }}
+    QPushButton#primaryButton:hover {{
+        background: {p['accent_hover']};
+    }}
+    QPushButton#dangerButton {{
+        color: {p['danger']};
+        border-color: {p['danger']};
+    }}
+    QPushButton#flatButton {{
+        border: none;
+        background: transparent;
+        color: {p['dim']};
+    }}
+    QPushButton#navButton {{
+        text-align: left;
+        border: none;
+        background: transparent;
+        color: {p['muted']};
+        padding-left: 18px;
+        font-size: 13px;
+    }}
+    QPushButton#navButton:checked {{
+        background: {p['selected']};
+        color: {p['accent']};
+    }}
+    QRadioButton, QCheckBox {{
+        color: {p['muted']};
+        spacing: 8px;
+        background: transparent;
+        font-size: 13px;
+    }}
+    QRadioButton::indicator, QCheckBox::indicator {{
+        width: 19px;
+        height: 19px;
+    }}
+    QRadioButton::indicator:checked, QCheckBox::indicator:checked {{
+        background: {p['accent']};
+        border: 1px solid {p['accent']};
+        border-radius: 4px;
+    }}
+    QRadioButton::indicator:unchecked, QCheckBox::indicator:unchecked {{
+        background: {p['input']};
+        border: 1px solid {p['border']};
+        border-radius: 4px;
+    }}
+    QRadioButton::indicator {{
+        border-radius: 9px;
+    }}
+    QProgressBar {{
+        background: {p['input']};
+        border: none;
+        border-radius: 4px;
+        height: 8px;
+    }}
+    QProgressBar::chunk {{
+        background: {p['accent']};
+        border-radius: 4px;
+    }}
+    QLabel#thumb {{
+        background: {p['input']};
+        border: 1px solid {p['border']};
+        border-radius: 7px;
+        color: {p['dim']};
+        font-weight: 700;
+    }}
+    QTextEdit#logBox, QTextEdit#detailsBox {{
+        font-family: Consolas;
+        font-size: 11px;
+        color: {p['muted']};
+    }}
+    QListWidget#historyList {{
+        background: transparent;
+        border: none;
+        color: {p['text']};
+    }}
+    QListWidget#historyList::item {{
+        background: {p['card']};
+        border: 1px solid {p['border']};
+        border-radius: 7px;
+        padding: 10px;
+        margin-bottom: 5px;
+    }}
+    QListWidget#historyList::item:selected {{
+        background: {p['selected']};
+    }}
+    """
+
+
+def main():
+    qt_app = QApplication(sys.argv)
+    icon_path = resource_path("assets", ICON_FILE)
+    if icon_path.exists():
+        qt_app.setWindowIcon(QIcon(str(icon_path)))
+    window = MainWindow()
+    window.show()
+    sys.exit(qt_app.exec_())
+
+
 if __name__ == "__main__":
-    app = MediaFlowApp()
-    app.mainloop()
+    main()
