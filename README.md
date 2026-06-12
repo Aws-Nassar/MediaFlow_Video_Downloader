@@ -111,6 +111,8 @@ Settings and history are stored locally in your user profile:
 
 These are personal machine state and are not committed to the repository.
 
+Both files are shared across **all versions** of MediaFlow on the same machine (whether built locally or downloaded from GitHub Releases). Your download history and preferences are tied to your user account, not to the .exe file.
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -121,3 +123,5 @@ These are personal machine state and are not committed to the repository.
 | A site stops working | Update yt-dlp: `python -m pip install -U yt-dlp` |
 | Private or login-required content fails | Enable browser cookies or supply a `cookies.txt` in Settings |
 | Download fails with no clear error | Confirm the URL opens in your browser and try a different quality or format |
+| "Unknown publisher" / Windows SmartScreen warning | This is normal for unsigned PyInstaller executables. Click "More info" → "Run anyway". The app is open-source; inspect the code or build from source if concerned |
+| App takes a long time to start | First launch is slower because yt-dlp registers all site extractors. Subsequent launches are faster. The yt-dlp import is deferred to when you first click "Analyse" |

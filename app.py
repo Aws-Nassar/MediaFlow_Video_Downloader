@@ -64,16 +64,24 @@ from PyQt5.QtWidgets import (
     QProgressBar,
 )
 
-try:
-    import yt_dlp
-except ImportError:
-    app = QApplication(sys.argv)
-    QMessageBox.critical(
-        None,
-        "Missing Dependency",
-        "yt-dlp is not installed.\n\nRun:\n  pip install yt-dlp",
-    )
-    sys.exit(1)
+import importlib
+
+class _LazyYtdlp:
+    def __getattr__(self, name):
+        try:
+            mod = importlib.import_module("yt_dlp")
+        except ImportError:
+            app = QApplication(sys.argv)
+            QMessageBox.critical(
+                None,
+                "Missing Dependency",
+                "yt-dlp is not installed.\n\nRun:\n  pip install yt-dlp",
+            )
+            sys.exit(1)
+        globals()["yt_dlp"] = mod
+        return getattr(mod, name)
+
+yt_dlp = _LazyYtdlp()
 
 
 APP_NAME = "MediaFlow Pro"

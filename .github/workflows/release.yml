@@ -30,6 +30,10 @@ jobs:
           Copy-Item "$env:TEMP\ffmpeg\ffmpeg-master-latest-win64-gpl\bin\ffprobe.exe" tools\ffprobe.exe
           Copy-Item "$env:TEMP\ffmpeg\ffmpeg-master-latest-win64-gpl\bin\ffplay.exe" tools\ffplay.exe
 
+      - name: Install UPX (compressor)
+        shell: pwsh
+        run: choco install upx --no-progress -y
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
