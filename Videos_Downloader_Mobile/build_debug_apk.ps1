@@ -20,7 +20,11 @@ $env:ANDROID_SDK_ROOT = $sdk
 $env:JAVA_HOME = $studioJbr
 
 if ($Clean) {
-    .\gradlew.bat clean --no-daemon
+    flutter clean
 }
 
-.\gradlew.bat assembleDebug --no-daemon
+flutter pub get
+
+flutter build apk --debug
+
+Write-Host "APK: build/app/outputs/flutter-apk/app-debug.apk" -ForegroundColor Green
