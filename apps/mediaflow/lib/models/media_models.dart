@@ -39,6 +39,7 @@ enum MediaFlowErrorCode {
   rateLimited,
   quotaExceeded,
   notFound,
+  formatUnavailable,
   liveUnavailable,
   driveLayoutChanged,
   zipFailed,

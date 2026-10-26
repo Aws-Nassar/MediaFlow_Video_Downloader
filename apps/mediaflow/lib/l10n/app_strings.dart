@@ -280,6 +280,8 @@ class AppStrings {
       'error_quotaExceeded':
           'Google Drive is temporarily limiting this file. Try again later.',
       'error_notFound': 'The link is invalid or the item was removed.',
+      'error_formatUnavailable':
+          'No downloadable format is available for this item.',
       'error_liveUnavailable':
           'This live stream is not available for recording.',
       'error_driveLayoutChanged':
@@ -441,6 +443,7 @@ class AppStrings {
       'error_quotaExceeded':
           'Google Drive يحدّ مؤقتًا من هذا الملف. أعد المحاولة لاحقًا.',
       'error_notFound': 'الرابط غير صالح أو تم حذف العنصر.',
+      'error_formatUnavailable': 'لا يوجد تنسيق قابل للتنزيل لهذا العنصر.',
       'error_liveUnavailable': 'هذا البث المباشر غير متاح للتسجيل.',
       'error_driveLayoutChanged': 'تغيّر تخطيط مجلد Drive وتعذّرت قراءته.',
       'error_zipFailed': 'تعذّر إنشاء ملف ZIP.',

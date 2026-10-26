@@ -1,0 +1,51 @@
+{
+  "_type": "video",
+  "id": "fixture123",
+  "title": "Fixture video",
+  "uploader": "Fixture channel",
+  "channel": "Fixture channel",
+  "duration": 212,
+  "webpage_url": "https://example.com/watch?v=fixture123",
+  "extractor": "youtube",
+  "extractor_key": "Youtube",
+  "is_live": false,
+  "live_status": "not_live",
+  "availability": "public",
+  "age_limit": 0,
+  "formats": [
+    {
+      "format_id": "137",
+      "ext": "mp4",
+      "vcodec": "avc1.640028",
+      "acodec": "none",
+      "height": 1080,
+      "width": 1920,
+      "fps": 30,
+      "tbr": 1886.792,
+      "filesize": 50000000,
+      "protocol": "https"
+    },
+    {
+      "format_id": "140",
+      "ext": "m4a",
+      "vcodec": "none",
+      "acodec": "mp4a.40.2",
+      "abr": 129.5,
+      "tbr": 129.5,
+      "filesize": 4000000,
+      "protocol": "https"
+    },
+    {
+      "format_id": "18",
+      "ext": "mp4",
+      "vcodec": "avc1.42001E",
+      "acodec": "mp4a.40.2",
+      "height": 360,
+      "width": 640,
+      "fps": 30,
+      "tbr": 566.0,
+      "filesize": 15000000,
+      "protocol": "https"
+    }
+  ]
+}
