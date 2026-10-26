@@ -50,7 +50,9 @@ void main() {
 
     expect(doc!.kind, DriveLinkKind.native);
     expect(doc.nativeKind, 'document');
+    expect(doc.canonicalUrl, contains('/document/d/'));
     expect(sheet!.nativeKind, 'spreadsheet');
+    expect(sheet.canonicalUrl, contains('/spreadsheets/d/'));
   });
 
   test('rejects short IDs, foreign hosts, and non-http schemes', () {

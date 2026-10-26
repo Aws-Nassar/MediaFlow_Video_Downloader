@@ -6,7 +6,8 @@ as references.
 
 ## Current state
 
-Phase 2 vertical slice with a fake engine:
+Phase 2 vertical slice plus the Windows yt-dlp bridge and link-shared Google
+Drive HTTP support:
 
 - Analyze → Queue → Library → Settings shell.
 - Studio Dark, Light, and OLED themes.
@@ -14,11 +15,18 @@ Phase 2 vertical slice with a fake engine:
 - Batch intake (one link per line), Video/Audio for the whole batch.
 - Per-item failure cards, continue-on-error, and an end-of-batch summary with
   retry-failed and copy-failed-links.
-- In-memory state only. No network, no real downloads, no persistence.
+- Windows yt-dlp.exe + FFmpeg support when the binaries are present.
+- Link-shared Google Drive file/folder listing over public HTML, recursive
+  folder expansion, direct downloads, the public confirmation form, and
+  Docs/Sheets/Slides export as PDF/XLSX/PPTX.
+- In-memory state only. No persistence.
 - No new packages beyond the Flutter SDK and the generated lint/test tooling.
+- No Google sign-in, OAuth, API key, or Google API package.
 
-The real Windows `yt-dlp.exe` bridge, link-shared Google Drive listing/ZIP, and
-SQLite history are next. There is no Google sign-in, OAuth, or API key.
+The Drive selection sheet, ZIP/skipped-file report, SQLite history, and the
+Android engine bridge are next. The Windows runner and live endpoints have not
+been manually verified here because the Visual Studio C++ toolchain, engine
+binaries, and an authorized live sample are unavailable.
 
 ## Run
 
@@ -59,6 +67,9 @@ tests inject zero-delay fakes and never download anything.
 - `lib/theme/studio_theme.dart` — palette, Material theme, OLED variant.
 - `lib/models/media_models.dart` — jobs, descriptors, errors, summaries.
 - `lib/sources/` — adapter contract, registry, fake adapter.
+- `lib/drive/` — public Drive link parsing, folder HTML, HTTP transport,
+  recursive expansion, and download adapter.
+- `lib/engine/ytdlp/` — yt-dlp command, parser, process, and engine bridge.
 - `lib/state/app_state.dart` — in-memory queue, retry, batch summary.
 - `lib/screens/` — Analyze, Queue, Library, Settings.
 - `lib/widgets/` — shared cards, job tiles, batch summary.
@@ -68,5 +79,6 @@ tests inject zero-delay fakes and never download anything.
 - Material's own localizations stay on English until `flutter_localizations` and
   ARB/gen-l10n are approved. The app strings and `Directionality` still switch to
   Arabic; Material widgets such as text-field context menus remain English.
-- Tests use only the fake adapter and zero-delay timers.
+- Tests use only the fake adapter, a fake Drive HTTP transport, recorded HTML,
+  and zero-delay timers. They never use live URLs.
 - The app ID is `com.mediaflow.app`; Android `minSdk` is 24.

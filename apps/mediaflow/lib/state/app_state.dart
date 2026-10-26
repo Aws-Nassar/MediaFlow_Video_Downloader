@@ -193,6 +193,7 @@ class AppState extends ChangeNotifier {
                 sourceLabel: descriptor.sourceLabel,
                 sourceId: descriptor.sourceId,
                 status: JobStatus.queued,
+                relativePath: entry.relativePath,
               );
               child.title = entry.title;
               child.totalBytes = entry.sizeBytes;
@@ -252,6 +253,7 @@ class AppState extends ChangeNotifier {
     required String sourceId,
     required JobStatus status,
     MediaFlowError? error,
+    String? relativePath,
   }) {
     return DownloadJob(
       id: 'job-${++_jobCounter}',
@@ -263,6 +265,7 @@ class AppState extends ChangeNotifier {
       downloadType: downloadType,
       status: status,
       error: error,
+      relativePath: relativePath,
       createdAt: DateTime.now(),
     );
   }

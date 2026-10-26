@@ -118,6 +118,10 @@ void main() {
       ]),
     );
     expect(state.jobs.map((job) => job.title), containsAll(['One', 'Two']));
+    expect(
+      state.jobs.map((job) => job.relativePath),
+      containsAll(['Folder/One.bin', 'Folder/Two.bin']),
+    );
     expect(state.lastSummary!.total, 2);
     expect(state.lastSummary!.completed, 2);
   });
@@ -163,11 +167,13 @@ class _CollectionStub implements SourceAdapter {
           title: 'One',
           url: 'https://collection.example/file/1',
           sizeBytes: 100,
+          relativePath: 'Folder/One.bin',
         ),
         MediaEntry(
           title: 'Two',
           url: 'https://collection.example/file/2',
           sizeBytes: 200,
+          relativePath: 'Folder/Two.bin',
         ),
       ],
     );

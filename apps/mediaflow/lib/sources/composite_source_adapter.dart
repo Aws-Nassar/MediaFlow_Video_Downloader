@@ -27,6 +27,15 @@ class CompositeSourceAdapter
 
   @override
   String get engineLabel {
+    // A non-engine source such as Drive may sit before yt-dlp in routing
+    // order. Prefer the actual download engine label when it exists.
+    for (final adapter in adapters) {
+      if (adapter.id == 'yt-dlp' &&
+          adapter is EngineInfo &&
+          !(adapter as EngineInfo).isDemoEngine) {
+        return (adapter as EngineInfo).engineLabel;
+      }
+    }
     for (final adapter in adapters) {
       if (adapter is EngineInfo && !(adapter as EngineInfo).isDemoEngine) {
         return (adapter as EngineInfo).engineLabel;

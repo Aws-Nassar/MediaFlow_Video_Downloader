@@ -142,23 +142,27 @@ Suggested commit: `feat(sources): add v1 multi-source adapters and tests`.
 
 Entry: v1 single-item flows stable; link-shared Drive parser fixtures ready.
 
-Status: link parsing, public folder HTML parsing, recursive expansion,
-depth/item/cycle guards, and collection-entry jobs are implemented with
-fixtures. The HTTP adapter, selection sheet, ZIP, native export, and manual
-acceptance remain.
+Status: link parsing, public folder HTTP listing, recursive expansion,
+depth/item/cycle guards, collection-entry jobs, direct file downloads, the
+public confirmation form, and Google-native PDF/XLSX/PPTX exports are
+implemented and covered with recorded HTML and a fake HTTP transport. The
+selection sheet, ZIP/skipped-file report, size preview, persistence, and manual
+live acceptance remain.
 
 - [ ] Collection probe/expand/select for playlists and folders.
 - [x] Expand parsed collection entries into individual jobs.
 - [ ] Persist collection items and per-item status.
 - [x] Google Drive ID parsing.
-- [ ] Link-shared Drive file download over HTTP.
+- [x] Link-shared Drive file download over HTTP, including the public
+  confirmation form and cancellation.
 - [x] Drive folder listing via public folder HTML; recursion, limits, cycle
   detection.
 - [ ] Drive selection sheet with "Download all" and "Download as ZIP."
 - [ ] Streaming/ZIP64 folder ZIP from successful files; skipped-file report.
-- [ ] Google-native export or skip.
-- [ ] Restriction errors: sign-in required, owner-disabled, policy, quota,
-  layout changed.
+- [x] Google-native export or skip: Docs/Sheets/Slides export as PDF/XLSX/PPTX;
+  unsupported native types fail with a clear unsupported-link reason.
+- [ ] Full restriction matrix: sign-in required, owner-disabled, policy, quota,
+  layout changed. HTTP status and common public error pages are mapped.
 - [ ] Size preview, free-space check, skip/continue.
 - [ ] Manual acceptance S-14…S-17, S-20, S-21.
 

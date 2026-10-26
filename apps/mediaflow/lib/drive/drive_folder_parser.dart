@@ -1,6 +1,5 @@
-import 'dart:convert';
-
 import '../models/media_models.dart';
+import 'drive_html.dart';
 
 enum DriveEntryKind { file, folder, native }
 
@@ -51,10 +50,6 @@ abstract final class DriveFolderParser {
     caseSensitive: false,
     dotAll: true,
   );
-  static final RegExp _href = RegExp(
-    r'''href\s*=\s*(?:"([^"]*)"|'([^']*)')''',
-    caseSensitive: false,
-  );
   static final RegExp _title = RegExp(
     r'<title\b[^>]*>(.*?)</title>',
     caseSensitive: false,
@@ -72,10 +67,8 @@ abstract final class DriveFolderParser {
     r'/(document|spreadsheets?|presentations?|forms?|drawings?)/d/([-\w]{25,})(?:[/?#]|$)',
     caseSensitive: false,
   );
-  static final RegExp _whitespace = RegExp(r'\s+');
-  static final RegExp _tags = RegExp(r'<[^>]*>');
   static final RegExp _titleSuffix = RegExp(
-    r'\s*[-–—]\s*Google Drive\s*$',
+    r'\s*[-–—]\s*Google\s+(?:Drive|Docs|Sheets|Slides)\s*$',
     caseSensitive: false,
   );
 
@@ -86,7 +79,9 @@ abstract final class DriveFolderParser {
     }
 
     final titleMatch = _title.firstMatch(html);
-    final rawTitle = titleMatch == null ? '' : _text(titleMatch.group(1) ?? '');
+    final rawTitle = titleMatch == null
+        ? ''
+        : htmlToText(titleMatch.group(1) ?? '');
     final name = rawTitle.replaceFirst(_titleSuffix, '').trim();
     if (name.isEmpty || name.toLowerCase() == 'google drive') {
       throw const DriveFolderParseException(
@@ -98,13 +93,11 @@ abstract final class DriveFolderParser {
     final entries = <DriveFolderEntry>[];
     final seen = <String>{};
     for (final match in _anchor.allMatches(html)) {
-      final attributes = match.group(1) ?? '';
-      final hrefMatch = _href.firstMatch(attributes);
-      if (hrefMatch == null) continue;
-      final rawHref = _decode(hrefMatch.group(1) ?? hrefMatch.group(2) ?? '');
+      final rawHref = attributeValue(match.group(1) ?? '', 'href');
+      if (rawHref == null) continue;
       final uri = Uri.tryParse(rawHref);
       if (uri == null) continue;
-      final entry = _entryFor(uri, _text(match.group(2) ?? ''));
+      final entry = _entryFor(uri, htmlToText(match.group(2) ?? ''));
       if (entry == null) continue;
       if (!seen.add('${entry.kind.name}:${entry.id}')) continue;
       entries.add(entry);
@@ -117,15 +110,17 @@ abstract final class DriveFolderParser {
   static MediaFlowErrorCode? detectAccessError(String html) {
     final lower = html.toLowerCase();
     if (lower.contains('sign in - google accounts') ||
+        lower.contains('sign in to continue') ||
         lower.contains('identifier') && lower.contains('password')) {
       return MediaFlowErrorCode.loginRequired;
     }
     if (lower.contains('you need access') ||
-        lower.contains('request access') ||
-        lower.contains('you do not have permission')) {
+        lower.contains('you do not have permission') ||
+        lower.contains('access denied')) {
       return MediaFlowErrorCode.permissionDenied;
     }
     if (lower.contains('quota exceeded') ||
+        lower.contains('download quota') ||
         lower.contains('too many users have viewed or downloaded')) {
       return MediaFlowErrorCode.quotaExceeded;
     }
@@ -149,7 +144,7 @@ abstract final class DriveFolderParser {
         name: name,
         kind: DriveEntryKind.native,
         nativeKind: nativeKind,
-        url: 'https://docs.google.com/$nativeKind/d/$id',
+        url: 'https://docs.google.com/${_nativePath(nativeKind)}/d/$id',
       );
     }
     if (host != 'drive.google.com') return null;
@@ -183,33 +178,22 @@ abstract final class DriveFolderParser {
     return lower.endsWith('s') ? lower.substring(0, lower.length - 1) : lower;
   }
 
-  static String _text(String html) {
-    return _decode(
-      html.replaceAll(_tags, ' '),
-    ).replaceAll(_whitespace, ' ').trim();
+  static String _nativePath(String kind) {
+    switch (kind) {
+      case 'spreadsheet':
+        return 'spreadsheets';
+      case 'presentation':
+        return 'presentations';
+      case 'form':
+        return 'forms';
+      case 'drawing':
+        return 'drawings';
+      case 'script':
+        return 'scripts';
+      case 'site':
+        return 'sites';
+      default:
+        return 'document';
+    }
   }
-
-  static String _decode(String value) {
-    var result = value
-        .replaceAll('&amp;', '&')
-        .replaceAll('&lt;', '<')
-        .replaceAll('&gt;', '>')
-        .replaceAll('&quot;', '"')
-        .replaceAll('&#39;', "'")
-        .replaceAll('&#x27;', "'")
-        .replaceAll('&nbsp;', ' ');
-    result = result.replaceAllMapped(
-      RegExp(r'&#(\d+);'),
-      (match) => String.fromCharCode(int.parse(match.group(1)!)),
-    );
-    result = result.replaceAllMapped(
-      RegExp(r'&#x([0-9a-fA-F]+);'),
-      (match) => String.fromCharCode(int.parse(match.group(1)!, radix: 16)),
-    );
-    return result;
-  }
-
-  /// Decodes HTML that may be used for an inline page fixture.
-  static String decodeUtf8(List<int> bytes) =>
-      utf8.decode(bytes, allowMalformed: true);
 }

@@ -24,7 +24,8 @@ class DriveLink {
       case DriveLinkKind.file:
         return 'https://drive.google.com/file/d/$id/view';
       case DriveLinkKind.native:
-        return 'https://docs.google.com/${nativeKind ?? 'document'}/d/$id';
+        return 'https://docs.google.com/'
+            '${DriveLinks._nativePath(nativeKind ?? 'document')}/d/$id';
     }
   }
 
@@ -100,5 +101,24 @@ abstract final class DriveLinks {
         ? lower.substring(0, lower.length - 1)
         : lower;
     return _nativeKinds.hasMatch(singular) ? singular : null;
+  }
+
+  static String _nativePath(String kind) {
+    switch (kind) {
+      case 'spreadsheet':
+        return 'spreadsheets';
+      case 'presentation':
+        return 'presentations';
+      case 'form':
+        return 'forms';
+      case 'drawing':
+        return 'drawings';
+      case 'script':
+        return 'scripts';
+      case 'site':
+        return 'sites';
+      default:
+        return 'document';
+    }
   }
 }

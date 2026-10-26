@@ -175,4 +175,23 @@ void main() {
     expect(onlyDemo.isDemoEngine, isTrue);
     expect(onlyDemo.engineLabel, 'Demo engine');
   });
+
+  test('prefers the yt-dlp label when Drive is first in routing order', () {
+    final drive = _StubAdapter(
+      id: 'drive',
+      matches: (uri) => uri.host == 'drive.google.com',
+      demo: false,
+      label: 'Google Drive (public)',
+    );
+    final engine = _StubAdapter(
+      id: 'yt-dlp',
+      matches: (uri) => uri.host == 'video.example',
+      demo: false,
+      label: 'yt-dlp + FFmpeg',
+    );
+
+    final composite = CompositeSourceAdapter([demo, drive, engine]);
+
+    expect(composite.engineLabel, 'yt-dlp + FFmpeg');
+  });
 }

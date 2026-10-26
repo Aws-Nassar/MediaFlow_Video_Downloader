@@ -39,6 +39,7 @@ enum MediaFlowErrorCode {
   rateLimited,
   quotaExceeded,
   notFound,
+  emptyCollection,
   formatUnavailable,
   liveUnavailable,
   driveLayoutChanged,
@@ -85,6 +86,7 @@ class MediaEntry {
   final int? sizeBytes;
   final MediaKind kind;
   final String? id;
+  final String? relativePath;
 
   const MediaEntry({
     required this.title,
@@ -92,6 +94,7 @@ class MediaEntry {
     this.sizeBytes,
     this.kind = MediaKind.file,
     this.id,
+    this.relativePath,
   });
 }
 
@@ -143,6 +146,7 @@ class DownloadJob {
   Duration? eta;
   MediaFlowError? error;
   String? filePath;
+  String? relativePath;
   DateTime? completedAt;
   int itemIndex;
   int itemCount;
@@ -164,6 +168,7 @@ class DownloadJob {
     this.eta,
     this.error,
     this.filePath,
+    this.relativePath,
     this.completedAt,
     this.itemIndex = 1,
     this.itemCount = 1,
