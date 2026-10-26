@@ -20,7 +20,7 @@ class BatchSummaryCard extends StatelessWidget {
     final state = MediaFlowScope.of(context);
     final palette = context.palette;
     final strings = state.strings;
-    final hasIssues = summary.hasFailures;
+    final hasIssues = summary.hasIssues;
     final accent = hasIssues ? palette.warning : palette.success;
 
     if (summary.isSingleSuccess) {
@@ -188,7 +188,7 @@ class BatchSummaryCard extends StatelessWidget {
               ],
             ),
           ),
-          if (hasIssues) ...[
+          if (summary.hasFailures) ...[
             Divider(color: palette.border),
             Padding(
               padding: const EdgeInsets.fromLTRB(18, 12, 18, 4),
@@ -200,19 +200,31 @@ class BatchSummaryCard extends StatelessWidget {
             for (final failure in summary.failures)
               _FailureRow(failure: failure),
           ],
+          if (summary.skippedItems.isNotEmpty) ...[
+            Divider(color: palette.border),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 4),
+              child: Text(
+                strings.skippedFiles,
+                style: TextStyle(color: palette.textFaint, fontSize: 11),
+              ),
+            ),
+            for (final skipped in summary.skippedItems)
+              _SkippedRow(failure: skipped),
+          ],
           Padding(
             padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
             child: Wrap(
               spacing: 6,
               runSpacing: 4,
               children: [
-                if (hasIssues)
+                if (summary.hasFailures)
                   FilledButton.tonalIcon(
                     onPressed: state.retryFailed,
                     icon: const Icon(Icons.refresh_rounded, size: 17),
                     label: Text(strings.retryFailed),
                   ),
-                if (hasIssues)
+                if (summary.hasFailures)
                   OutlinedButton.icon(
                     onPressed: () => copyToClipboard(
                       context,
@@ -234,6 +246,65 @@ class BatchSummaryCard extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SkippedRow extends StatelessWidget {
+  final BatchFailure failure;
+
+  const _SkippedRow({required this.failure});
+
+  @override
+  Widget build(BuildContext context) {
+    final state = MediaFlowScope.of(context);
+    final palette = context.palette;
+    final strings = state.strings;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 6, 10, 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.lock_outline_rounded, size: 17, color: palette.warning),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  failure.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: palette.text,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  shortUrl(failure.url, max: 64),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: palette.textFaint, fontSize: 10),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  strings.errorMessage(failure.code),
+                  style: TextStyle(color: palette.textMuted, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            tooltip: strings.copyLink,
+            onPressed: () =>
+                copyToClipboard(context, failure.url, strings.linkCopied),
+            icon: Icon(Icons.copy_rounded, size: 16, color: palette.textMuted),
           ),
         ],
       ),

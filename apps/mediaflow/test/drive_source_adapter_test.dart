@@ -68,8 +68,8 @@ void main() {
 
     expect(descriptor.isCollection, isTrue);
     expect(descriptor.title, 'Team Assets');
-    expect(descriptor.itemCount, 4);
-    expect(descriptor.entries.length, 4);
+    expect(descriptor.itemCount, 5);
+    expect(descriptor.entries.length, 5);
     expect(descriptor.entries[0].relativePath, 'Clip & Notes.mp4');
     expect(descriptor.entries[1].url, contains('docs.google.com'));
     expect(descriptor.entries[2].relativePath, 'Subfolder/Second file.pdf');
@@ -77,7 +77,38 @@ void main() {
       descriptor.entries[3].relativePath,
       'Subfolder/Nested/Third file.zip',
     );
+    expect(descriptor.entries[4].title, 'Back to root');
+    expect(
+      descriptor.entries[4].blockedCode,
+      MediaFlowErrorCode.collectionLimitReached,
+    );
     expect(transport.getRequests, hasLength(3));
+  });
+
+  test('rejects a folder with only unsupported native entries', () async {
+    transport.enqueueGet(
+      htmlResponse(
+        body:
+            '<html><head><title>Forms - Google Drive</title></head><body>'
+            '<a href="https://docs.google.com/forms/d/'
+            'fixtureFormFFFFFFFFFFFFFFFF/view">Form</a>'
+            '</body></html>',
+      ),
+    );
+
+    await expectLater(
+      adapter.probe(
+        Uri.parse('https://drive.google.com/drive/folders/$_folderId'),
+        downloadType: DownloadType.video,
+      ),
+      throwsA(
+        isA<MediaFlowException>().having(
+          (error) => error.error.code,
+          'code',
+          MediaFlowErrorCode.unsupportedUrl,
+        ),
+      ),
+    );
   });
 
   test('returns a clear error for an empty folder', () async {

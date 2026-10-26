@@ -126,6 +126,63 @@ void main() {
     expect(state.lastSummary!.completed, 2);
   });
 
+  test('user selection only enqueues chosen collection entries', () async {
+    final state = AppState(adapter: _CollectionStub(), concurrency: 2);
+    addTearDown(state.dispose);
+
+    await state.analyzeAndEnqueue(
+      'https://collection.example/folder/1',
+      selectCollection: (descriptor) async {
+        return CollectionSelection(entries: [descriptor.entries.first]);
+      },
+    );
+    await _waitForSummary(state);
+
+    expect(state.jobs.length, 1);
+    expect(state.jobs.single.url, 'https://collection.example/file/1');
+    expect(state.lastSummary!.total, 1);
+    expect(state.lastSummary!.completed, 1);
+  });
+
+  test('cancelling collection selection leaves no jobs behind', () async {
+    final state = AppState(adapter: _CollectionStub(), concurrency: 2);
+    addTearDown(state.dispose);
+
+    await state.analyzeAndEnqueue(
+      'https://collection.example/folder/1',
+      selectCollection: (descriptor) async => null,
+    );
+
+    expect(state.jobs, isEmpty);
+    expect(state.lastSummary, isNull);
+    expect(state.isAnalyzing, isFalse);
+  });
+
+  test('blocked collection entries become skipped summary items', () async {
+    final state = AppState(adapter: _BlockedCollectionStub(), concurrency: 2);
+    addTearDown(state.dispose);
+
+    await state.analyzeAndEnqueue(
+      'https://collection.example/folder/2',
+      selectCollection: (descriptor) async {
+        return CollectionSelection(entries: [descriptor.entries.first]);
+      },
+    );
+    await _waitForSummary(state);
+
+    expect(state.jobs.length, 2);
+    expect(
+      state.jobs.where((job) => job.status == JobStatus.skipped).length,
+      1,
+    );
+    final summary = state.lastSummary!;
+    expect(summary.total, 2);
+    expect(summary.completed, 1);
+    expect(summary.skipped, 1);
+    expect(summary.skippedItems.single.title, 'Blocked form');
+    expect(summary.skippedItems.single.code, MediaFlowErrorCode.unsupportedUrl);
+  });
+
   test('forwards output directory and exposes the real engine label', () {
     final adapter = _AwareStub();
     final state = AppState(adapter: adapter, outputDirectory: 'D:/MediaFlow');
@@ -184,6 +241,54 @@ class _CollectionStub implements SourceAdapter {
     yield DownloadCompleted(
       filePath: 'Downloads/MediaFlow/${safeFileName(job.title)}.bin',
       totalBytes: job.totalBytes ?? 0,
+    );
+  }
+
+  @override
+  Future<void> cancel(String jobId) async {}
+}
+
+class _BlockedCollectionStub implements SourceAdapter {
+  @override
+  String get id => 'blocked-collection-stub';
+
+  @override
+  bool canHandle(Uri uri) => true;
+
+  @override
+  Future<MediaDescriptor> probe(
+    Uri uri, {
+    required DownloadType downloadType,
+  }) async {
+    return const MediaDescriptor(
+      sourceId: 'collection.example',
+      sourceLabel: 'Collection',
+      canonicalUrl: 'https://collection.example/folder/2',
+      title: 'Folder with a blocked form',
+      kind: MediaKind.collection,
+      isCollection: true,
+      itemCount: 2,
+      entries: [
+        MediaEntry(
+          title: 'Allowed file',
+          url: 'https://collection.example/file/allowed',
+          relativePath: 'Allowed file.txt',
+        ),
+        MediaEntry(
+          title: 'Blocked form',
+          url: 'https://docs.google.com/forms/d/fixtureForm/view',
+          blockedCode: MediaFlowErrorCode.unsupportedUrl,
+          relativePath: 'Blocked form',
+        ),
+      ],
+    );
+  }
+
+  @override
+  Stream<DownloadEvent> download(DownloadJob job) async* {
+    yield const DownloadCompleted(
+      filePath: 'Downloads/MediaFlow/allowed.txt',
+      totalBytes: 10,
     );
   }
 

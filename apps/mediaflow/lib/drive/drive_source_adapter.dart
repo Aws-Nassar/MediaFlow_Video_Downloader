@@ -105,7 +105,29 @@ class DriveSourceAdapter
       maxItems: maxItems,
     ).expand(link.id);
 
-    if (expansion.files.isEmpty) {
+    final entries = <MediaEntry>[
+      for (final file in expansion.files)
+        MediaEntry(
+          title: file.relativePath,
+          url: file.url,
+          kind: MediaKind.file,
+          id: file.id,
+          relativePath: file.relativePath,
+          blockedCode: file.isNative && !_isSupportedNativeKind(file.nativeKind)
+              ? MediaFlowErrorCode.unsupportedUrl
+              : null,
+        ),
+      for (final skipped in expansion.skipped)
+        MediaEntry(
+          title: skipped.name,
+          url: link.canonicalUrl,
+          kind: MediaKind.file,
+          id: skipped.id,
+          blockedCode: MediaFlowErrorCode.collectionLimitReached,
+        ),
+    ];
+
+    if (entries.isEmpty) {
       throw const MediaFlowException(
         MediaFlowError(
           code: MediaFlowErrorCode.emptyCollection,
@@ -113,18 +135,15 @@ class DriveSourceAdapter
         ),
       );
     }
-
-    final entries = expansion.files
-        .map(
-          (file) => MediaEntry(
-            title: file.relativePath,
-            url: file.url,
-            kind: MediaKind.file,
-            id: file.id,
-            relativePath: file.relativePath,
-          ),
-        )
-        .toList();
+    if (entries.every((entry) => entry.isBlocked)) {
+      throw const MediaFlowException(
+        MediaFlowError(
+          code: MediaFlowErrorCode.unsupportedUrl,
+          technicalDetails:
+              'The Drive folder only contains entries this app cannot download.',
+        ),
+      );
+    }
 
     return MediaDescriptor(
       sourceId: 'drive.google.com',
@@ -136,6 +155,12 @@ class DriveSourceAdapter
       itemCount: entries.length,
       entries: entries,
     );
+  }
+
+  static bool _isSupportedNativeKind(String? nativeKind) {
+    return nativeKind == 'document' ||
+        nativeKind == 'spreadsheet' ||
+        nativeKind == 'presentation';
   }
 
   @override

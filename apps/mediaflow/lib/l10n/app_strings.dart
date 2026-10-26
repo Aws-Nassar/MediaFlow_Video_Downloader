@@ -128,6 +128,17 @@ class AppStrings {
   String get openQueue => _t('openQueue');
   String get save => _t('save');
   String get saved => _t('saved');
+  String get folderContents => _t('folderContents');
+  String get downloadSelected => _t('downloadSelected');
+  String get downloadAll => _t('downloadAll');
+  String get downloadAsZip => _t('downloadAsZip');
+  String get selectAll => _t('selectAll');
+  String get selectNone => _t('selectNone');
+  String get selected => _t('selected');
+  String get sizeUnavailable => _t('sizeUnavailable');
+  String get blocked => _t('blocked');
+  String get noFilesSelected => _t('noFilesSelected');
+  String get skippedFiles => _t('skippedFiles');
 
   String statusLabel(JobStatus status) => _t('status_${status.name}');
 
@@ -255,6 +266,17 @@ class AppStrings {
       'openQueue': 'Open queue',
       'save': 'Save',
       'saved': 'Saved.',
+      'folderContents': 'Folder contents',
+      'downloadSelected': 'Download selected',
+      'downloadAll': 'Download all',
+      'downloadAsZip': 'Download as ZIP',
+      'selectAll': 'Select all',
+      'selectNone': 'Clear',
+      'selected': 'selected',
+      'sizeUnavailable': 'Size unavailable',
+      'blocked': 'Blocked',
+      'noFilesSelected': 'Select at least one file.',
+      'skippedFiles': 'Skipped files',
       'status_queued': 'Queued',
       'status_probing': 'Analyzing',
       'status_downloading': 'Downloading',
@@ -281,6 +303,8 @@ class AppStrings {
           'Google Drive is temporarily limiting this file. Try again later.',
       'error_notFound': 'The link is invalid or the item was removed.',
       'error_emptyCollection': 'This folder has no downloadable files.',
+      'error_collectionLimitReached':
+          'Part of this folder was skipped because it is too large or deeply nested.',
       'error_formatUnavailable':
           'No downloadable format is available for this item.',
       'error_liveUnavailable':
@@ -419,6 +443,17 @@ class AppStrings {
       'openQueue': 'فتح قائمة الانتظار',
       'save': 'حفظ',
       'saved': 'تم الحفظ.',
+      'folderContents': 'محتويات المجلد',
+      'downloadSelected': 'تنزيل المحدد',
+      'downloadAll': 'تنزيل الكل',
+      'downloadAsZip': 'تنزيل كملف ZIP',
+      'selectAll': 'تحديد الكل',
+      'selectNone': 'مسح التحديد',
+      'selected': 'محدد',
+      'sizeUnavailable': 'الحجم غير متاح',
+      'blocked': 'محظور',
+      'noFilesSelected': 'حدد ملفًا واحدًا على الأقل.',
+      'skippedFiles': 'الملفات المتخطاة',
       'status_queued': 'في الانتظار',
       'status_probing': 'جارٍ التحليل',
       'status_downloading': 'جارٍ التنزيل',
@@ -445,6 +480,8 @@ class AppStrings {
           'Google Drive يحدّ مؤقتًا من هذا الملف. أعد المحاولة لاحقًا.',
       'error_notFound': 'الرابط غير صالح أو تم حذف العنصر.',
       'error_emptyCollection': 'لا يحتوي هذا المجلد على ملفات قابلة للتنزيل.',
+      'error_collectionLimitReached':
+          'تم تخطي جزء من هذا المجلد لأنه كبير جدًا أو متداخل بعمق.',
       'error_formatUnavailable': 'لا يوجد تنسيق قابل للتنزيل لهذا العنصر.',
       'error_liveUnavailable': 'هذا البث المباشر غير متاح للتسجيل.',
       'error_driveLayoutChanged': 'تغيّر تخطيط مجلد Drive وتعذّرت قراءته.',

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../models/media_models.dart';
 import '../state/media_flow_scope.dart';
 import '../theme/studio_theme.dart';
+import '../widgets/drive_selection_sheet.dart';
 import '../widgets/studio_widgets.dart';
 
 class AnalyzeScreen extends StatefulWidget {
@@ -37,7 +38,15 @@ class _AnalyzeScreenState extends State<AnalyzeScreen> {
     final state = MediaFlowScope.of(context);
     final raw = _controller.text.trim();
     if (raw.isEmpty || state.isAnalyzing) return;
-    await state.analyzeAndEnqueue(raw);
+    await state.analyzeAndEnqueue(
+      raw,
+      selectCollection: (descriptor) {
+        if (descriptor.sourceId != 'drive.google.com' || !mounted) {
+          return Future.value(CollectionSelection(entries: descriptor.entries));
+        }
+        return showDriveCollectionSelection(context, descriptor);
+      },
+    );
     if (!mounted) return;
     if (state.jobs.isNotEmpty || state.lastSummary != null) {
       _controller.clear();

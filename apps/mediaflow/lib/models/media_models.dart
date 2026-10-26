@@ -40,6 +40,7 @@ enum MediaFlowErrorCode {
   quotaExceeded,
   notFound,
   emptyCollection,
+  collectionLimitReached,
   formatUnavailable,
   liveUnavailable,
   driveLayoutChanged,
@@ -87,6 +88,7 @@ class MediaEntry {
   final MediaKind kind;
   final String? id;
   final String? relativePath;
+  final MediaFlowErrorCode? blockedCode;
 
   const MediaEntry({
     required this.title,
@@ -95,7 +97,19 @@ class MediaEntry {
     this.kind = MediaKind.file,
     this.id,
     this.relativePath,
+    this.blockedCode,
   });
+
+  bool get isBlocked => blockedCode != null;
+}
+
+/// The user's choice for one expanded folder or playlist.
+@immutable
+class CollectionSelection {
+  final List<MediaEntry> entries;
+  final bool asZip;
+
+  const CollectionSelection({required this.entries, this.asZip = false});
 }
 
 @immutable
@@ -207,6 +221,7 @@ class BatchSummary {
   final int totalBytes;
   final Duration elapsed;
   final List<BatchFailure> failures;
+  final List<BatchFailure> skippedItems;
 
   const BatchSummary({
     required this.batchId,
@@ -218,11 +233,16 @@ class BatchSummary {
     required this.totalBytes,
     required this.elapsed,
     required this.failures,
+    this.skippedItems = const [],
   });
 
   bool get hasFailures => failures.isNotEmpty;
 
-  bool get isSingleSuccess => total == 1 && completed == 1 && !hasFailures;
+  bool get hasSkipped => skippedItems.isNotEmpty;
+
+  bool get hasIssues => hasFailures || hasSkipped;
+
+  bool get isSingleSuccess => total == 1 && completed == 1 && !hasIssues;
 
   int get failedCount => failed;
 }

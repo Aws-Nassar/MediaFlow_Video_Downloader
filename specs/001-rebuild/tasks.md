@@ -144,10 +144,10 @@ Entry: v1 single-item flows stable; link-shared Drive parser fixtures ready.
 
 Status: link parsing, public folder HTTP listing, recursive expansion,
 depth/item/cycle guards, collection-entry jobs, direct file downloads, the
-public confirmation form, and Google-native PDF/XLSX/PPTX exports are
-implemented and covered with recorded HTML and a fake HTTP transport. The
-selection sheet, ZIP/skipped-file report, size preview, persistence, and manual
-live acceptance remain.
+public confirmation form, Google-native PDF/XLSX/PPTX exports, and the folder
+selection sheet with blocked/skipped rows are implemented and covered with
+recorded HTML and a fake HTTP transport. The ZIP/ZIP64 archive, size preview,
+persistence, and manual live acceptance remain.
 
 - [ ] Collection probe/expand/select for playlists and folders.
 - [x] Expand parsed collection entries into individual jobs.
@@ -157,8 +157,10 @@ live acceptance remain.
   confirmation form and cancellation.
 - [x] Drive folder listing via public folder HTML; recursion, limits, cycle
   detection.
-- [ ] Drive selection sheet with "Download all" and "Download as ZIP."
-- [ ] Streaming/ZIP64 folder ZIP from successful files; skipped-file report.
+- [x] Collection-entry selection sheet with per-file checkboxes, select all/none, Download selected, Download all, and blocked rows.
+- [x] Report unsupported native types and recursion-limit entries as skipped batch items.
+- [ ] Download as ZIP action on the selection sheet.
+- [ ] Streaming/ZIP64 folder ZIP from successful files; skipped-file report inside the archive batch.
 - [x] Google-native export or skip: Docs/Sheets/Slides export as PDF/XLSX/PPTX;
   unsupported native types fail with a clear unsupported-link reason.
 - [ ] Full restriction matrix: sign-in required, owner-disabled, policy, quota,

@@ -19,14 +19,18 @@ Drive HTTP support:
 - Link-shared Google Drive file/folder listing over public HTML, recursive
   folder expansion, direct downloads, the public confirmation form, and
   Docs/Sheets/Slides export as PDF/XLSX/PPTX.
+- Drive folder selection sheet with per-file checkboxes, select all/none,
+  Download selected, Download all, and blocked rows that cannot be selected.
+- Unsupported native types and recursion-limit skips are reported in the batch
+  summary instead of being silently dropped.
 - In-memory state only. No persistence.
 - No new packages beyond the Flutter SDK and the generated lint/test tooling.
 - No Google sign-in, OAuth, API key, or Google API package.
 
-The Drive selection sheet, ZIP/skipped-file report, SQLite history, and the
-Android engine bridge are next. The Windows runner and live endpoints have not
-been manually verified here because the Visual Studio C++ toolchain, engine
-binaries, and an authorized live sample are unavailable.
+The ZIP/ZIP64 folder archive, SQLite history, and the Android engine bridge are
+next. The Windows runner and live endpoints have not been manually verified here
+because the Visual Studio C++ toolchain, engine binaries, and an authorized live
+sample are unavailable.
 
 ## Run
 

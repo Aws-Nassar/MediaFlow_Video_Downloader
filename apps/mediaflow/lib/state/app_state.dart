@@ -117,7 +117,11 @@ class AppState extends ChangeNotifier {
     _notify();
   }
 
-  Future<void> analyzeAndEnqueue(String rawInput) async {
+  Future<void> analyzeAndEnqueue(
+    String rawInput, {
+    Future<CollectionSelection?> Function(MediaDescriptor descriptor)?
+    selectCollection,
+  }) async {
     if (isAnalyzing) return;
     final urls = rawInput
         .split(RegExp(r'\r?\n'))
@@ -182,10 +186,50 @@ class AppState extends ChangeNotifier {
           );
 
           if (descriptor.isCollection && descriptor.entries.isNotEmpty) {
-            _jobs.remove(job);
             final entries = descriptor.entries;
-            for (var i = 0; i < entries.length; i++) {
-              final entry = entries[i];
+            CollectionSelection? selection;
+            try {
+              selection = selectCollection == null
+                  ? CollectionSelection(entries: entries)
+                  : await selectCollection(descriptor);
+            } catch (error) {
+              job.status = JobStatus.failed;
+              job.error = _errorFrom(error);
+              _notify();
+              continue;
+            }
+
+            _jobs.remove(job);
+            if (selection == null) {
+              _notify();
+              continue;
+            }
+
+            final selected = selection.entries.toSet();
+            final children = <DownloadJob>[];
+            for (final entry in entries) {
+              final blocked = entry.blockedCode;
+              if (blocked != null) {
+                final child = _newJob(
+                  batchId: batchId,
+                  url: entry.url,
+                  fallbackTitle: entry.title,
+                  sourceLabel: descriptor.sourceLabel,
+                  sourceId: descriptor.sourceId,
+                  status: JobStatus.skipped,
+                  error: MediaFlowError(
+                    code: blocked,
+                    technicalDetails: 'The folder entry cannot be downloaded.',
+                  ),
+                  relativePath: entry.relativePath,
+                );
+                child.title = entry.title;
+                child.totalBytes = entry.sizeBytes;
+                children.add(child);
+                continue;
+              }
+              if (!selected.contains(entry)) continue;
+
               final child = _newJob(
                 batchId: batchId,
                 url: entry.url,
@@ -197,10 +241,16 @@ class AppState extends ChangeNotifier {
               );
               child.title = entry.title;
               child.totalBytes = entry.sizeBytes;
-              child.itemIndex = i + 1;
+              child.itemIndex = children.length + 1;
               child.itemCount = entries.length;
-              _jobs.add(child);
+              children.add(child);
             }
+
+            for (var i = 0; i < children.length; i++) {
+              children[i].itemIndex = i + 1;
+              children[i].itemCount = children.length;
+            }
+            _jobs.addAll(children);
             _notify();
           } else if (descriptor.isCollection && descriptor.itemCount > 1) {
             _jobs.remove(job);
@@ -370,6 +420,17 @@ class AppState extends ChangeNotifier {
           ),
         )
         .toList();
+    final skippedItems = batchJobs
+        .where((job) => job.status == JobStatus.skipped)
+        .map(
+          (job) => BatchFailure(
+            jobId: job.id,
+            title: job.title,
+            url: job.url,
+            code: job.error?.code ?? MediaFlowErrorCode.unknown,
+          ),
+        )
+        .toList();
     final started =
         _batchStartedAt[batchId] ??
         batchJobs
@@ -390,6 +451,7 @@ class AppState extends ChangeNotifier {
       ),
       elapsed: DateTime.now().difference(started),
       failures: failures,
+      skippedItems: skippedItems,
     );
     _summaries.insert(0, summary);
     lastSummary = summary;
