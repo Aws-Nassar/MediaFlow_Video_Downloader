@@ -102,6 +102,26 @@ void main() {
     expect(state.jobs.single.filePath, endsWith('.m4a'));
   });
 
+  test('collection entries become jobs with their own URLs', () async {
+    final state = AppState(adapter: _CollectionStub(), concurrency: 2);
+    addTearDown(state.dispose);
+
+    await state.analyzeAndEnqueue('https://collection.example/folder/1');
+    await _waitForSummary(state);
+
+    expect(state.jobs.length, 2);
+    expect(
+      state.jobs.map((job) => job.url),
+      containsAll([
+        'https://collection.example/file/1',
+        'https://collection.example/file/2',
+      ]),
+    );
+    expect(state.jobs.map((job) => job.title), containsAll(['One', 'Two']));
+    expect(state.lastSummary!.total, 2);
+    expect(state.lastSummary!.completed, 2);
+  });
+
   test('forwards output directory and exposes the real engine label', () {
     final adapter = _AwareStub();
     final state = AppState(adapter: adapter, outputDirectory: 'D:/MediaFlow');
@@ -115,6 +135,54 @@ void main() {
     expect(adapter.outputDirectory, 'E:/Downloads');
     expect(state.outputDirectory, 'E:/Downloads');
   });
+}
+
+class _CollectionStub implements SourceAdapter {
+  @override
+  String get id => 'collection-stub';
+
+  @override
+  bool canHandle(Uri uri) => true;
+
+  @override
+  Future<MediaDescriptor> probe(
+    Uri uri, {
+    required DownloadType downloadType,
+  }) async {
+    return const MediaDescriptor(
+      sourceId: 'collection.example',
+      sourceLabel: 'Collection',
+      canonicalUrl: 'https://collection.example/folder/1',
+      title: 'Folder',
+      kind: MediaKind.collection,
+      isCollection: true,
+      itemCount: 2,
+      totalBytes: 300,
+      entries: [
+        MediaEntry(
+          title: 'One',
+          url: 'https://collection.example/file/1',
+          sizeBytes: 100,
+        ),
+        MediaEntry(
+          title: 'Two',
+          url: 'https://collection.example/file/2',
+          sizeBytes: 200,
+        ),
+      ],
+    );
+  }
+
+  @override
+  Stream<DownloadEvent> download(DownloadJob job) async* {
+    yield DownloadCompleted(
+      filePath: 'Downloads/MediaFlow/${safeFileName(job.title)}.bin',
+      totalBytes: job.totalBytes ?? 0,
+    );
+  }
+
+  @override
+  Future<void> cancel(String jobId) async {}
 }
 
 class _AwareStub implements SourceAdapter, OutputDirectoryAware, EngineInfo {

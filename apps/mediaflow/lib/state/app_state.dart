@@ -181,7 +181,27 @@ class AppState extends ChangeNotifier {
             downloadType: downloadType,
           );
 
-          if (descriptor.isCollection && descriptor.itemCount > 1) {
+          if (descriptor.isCollection && descriptor.entries.isNotEmpty) {
+            _jobs.remove(job);
+            final entries = descriptor.entries;
+            for (var i = 0; i < entries.length; i++) {
+              final entry = entries[i];
+              final child = _newJob(
+                batchId: batchId,
+                url: entry.url,
+                fallbackTitle: entry.title,
+                sourceLabel: descriptor.sourceLabel,
+                sourceId: descriptor.sourceId,
+                status: JobStatus.queued,
+              );
+              child.title = entry.title;
+              child.totalBytes = entry.sizeBytes;
+              child.itemIndex = i + 1;
+              child.itemCount = entries.length;
+              _jobs.add(child);
+            }
+            _notify();
+          } else if (descriptor.isCollection && descriptor.itemCount > 1) {
             _jobs.remove(job);
             final perItemBytes = descriptor.totalBytes == null
                 ? null

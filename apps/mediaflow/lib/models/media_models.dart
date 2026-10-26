@@ -79,6 +79,23 @@ class MediaFlowException implements Exception {
 }
 
 @immutable
+class MediaEntry {
+  final String title;
+  final String url;
+  final int? sizeBytes;
+  final MediaKind kind;
+  final String? id;
+
+  const MediaEntry({
+    required this.title,
+    required this.url,
+    this.sizeBytes,
+    this.kind = MediaKind.file,
+    this.id,
+  });
+}
+
+@immutable
 class MediaDescriptor {
   final String sourceId;
   final String sourceLabel;
@@ -90,6 +107,7 @@ class MediaDescriptor {
   final bool isCollection;
   final int itemCount;
   final int? totalBytes;
+  final List<MediaEntry> entries;
 
   const MediaDescriptor({
     required this.sourceId,
@@ -102,6 +120,7 @@ class MediaDescriptor {
     this.isCollection = false,
     this.itemCount = 1,
     this.totalBytes,
+    this.entries = const [],
   });
 }
 
