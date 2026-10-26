@@ -170,7 +170,8 @@ void main() {
     test('parses downloading progress', () {
       final progress = parseYtDlpProgressLine(
         'MF_PROGRESS {"status":"downloading","downloaded_bytes":5242880,'
-        '"total_bytes":10485760,"speed":1048576,"eta":5}',
+        '"total_bytes":10485760,"speed":1048576,"eta":5,'
+        r'"tmpfilename":"C:\\Temp\\fixture.part"}',
       );
 
       expect(progress, isNotNull);
@@ -179,6 +180,7 @@ void main() {
       expect(progress.totalBytes, 10485760);
       expect(progress.bytesPerSecond, 1048576);
       expect(progress.eta, const Duration(seconds: 5));
+      expect(progress.partialPath, r'C:\Temp\fixture.part');
     });
 
     test('treats finished progress as complete', () {

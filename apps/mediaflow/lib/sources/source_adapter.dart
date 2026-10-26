@@ -22,6 +22,7 @@ class DownloadProgress extends DownloadEvent {
   final int totalBytes;
   final double? bytesPerSecond;
   final Duration? eta;
+  final String? partialPath;
 
   const DownloadProgress({
     required this.fraction,
@@ -29,6 +30,7 @@ class DownloadProgress extends DownloadEvent {
     required this.totalBytes,
     this.bytesPerSecond,
     this.eta,
+    this.partialPath,
   });
 }
 

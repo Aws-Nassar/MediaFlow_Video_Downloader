@@ -38,6 +38,7 @@ DownloadProgress? parseYtDlpProgressLine(String line) {
     eta: etaSeconds != null && etaSeconds > 0
         ? Duration(seconds: etaSeconds.round())
         : null,
+    partialPath: _string(data['tmpfilename']),
   );
 }
 
