@@ -2,17 +2,19 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/download_item.dart';
+import '../services/download_contract.dart';
 import '../services/ytdlp_service.dart';
 import 'settings_provider.dart';
 import 'history_provider.dart';
 
 class DownloadProvider extends ChangeNotifier {
-  final YtdlpService _ytdlp = YtdlpService();
+  final YtdlpService _ytdlp;
   final SettingsProvider _settings;
   final HistoryProvider _history;
   StreamSubscription<Map<String, dynamic>>? _progressSub;
 
-  DownloadProvider(this._settings, this._history) {
+  DownloadProvider(this._settings, this._history, {YtdlpService? ytdlp})
+    : _ytdlp = ytdlp ?? YtdlpService() {
     _progressSub = _ytdlp.onProgress.listen(_onProgress);
   }
 
@@ -47,18 +49,38 @@ class DownloadProvider extends ChangeNotifier {
   List<String> _videoFormats = ['mp4', 'mkv', 'webm'];
   List<String> get videoFormats => _videoFormats;
 
-  List<String> _audioFormats = ['mp3', 'm4a', 'aac', 'opus', 'flac', 'wav', 'ogg'];
+  List<String> _audioFormats = [
+    'mp3',
+    'm4a',
+    'aac',
+    'opus',
+    'flac',
+    'wav',
+    'ogg',
+  ];
   List<String> get audioFormats => _audioFormats;
 
   List<String> _videoQualities = [
-    'Best Available', '1080p (FHD)', '720p (HD)', '480p',
-    '360p', '240p', '144p', 'Worst'
+    'Best Available',
+    '1080p (FHD)',
+    '720p (HD)',
+    '480p',
+    '360p',
+    '240p',
+    '144p',
+    'Worst',
   ];
   List<String> get videoQualities => _videoQualities;
 
   List<String> _audioQualities = [
-    'Best', '320 kbps', '256 kbps', '192 kbps',
-    '128 kbps', '96 kbps', '64 kbps', 'Worst'
+    'Best',
+    '320 kbps',
+    '256 kbps',
+    '192 kbps',
+    '128 kbps',
+    '96 kbps',
+    '64 kbps',
+    'Worst',
   ];
   List<String> get audioQualities => _audioQualities;
 
@@ -175,17 +197,23 @@ class DownloadProvider extends ChangeNotifier {
       _statusText = 'completed';
       _progress = 1.0;
 
+      final files = extractDownloadedFiles(result);
+      final filePath = files.isNotEmpty ? files.first : null;
+      final title =
+          _mediaInfo?['title'] ?? result['title']?.toString() ?? 'Unknown';
+
       // Add to history
-      final title = _mediaInfo?['title'] ?? 'Unknown';
-      _history.add(DownloadItem(
-        url: url,
-        title: title,
-        thumbnail: _mediaInfo?['thumbnail'],
-        ext: selectedExt,
-        quality: selectedQuality,
-        isAudio: isAudioOnly,
-        filePath: result['file_path'],
-      ));
+      _history.add(
+        DownloadItem(
+          url: url,
+          title: title,
+          thumbnail: _mediaInfo?['thumbnail'],
+          ext: selectedExt,
+          quality: selectedQuality,
+          isAudio: isAudioOnly,
+          filePath: filePath,
+        ),
+      );
     } else if (result['cancelled'] == true) {
       _status = DownloadStatus.cancelled;
       _statusText = 'cancelled';
@@ -225,12 +253,7 @@ class DownloadProvider extends ChangeNotifier {
 
   void _onProgress(Map<String, dynamic> data) {
     if (data['percent'] != null) {
-      final p = data['percent'];
-      if (p is num) {
-        _progress = p.toDouble() / 100.0;
-      } else if (p is String) {
-        _progress = (double.tryParse(p) ?? 0) / 100.0;
-      }
+      _progress = normalizePercent(data['percent']);
     }
     if (data['speed'] != null) _speed = data['speed'].toString();
     if (data['eta'] != null) _eta = data['eta'].toString();

@@ -87,42 +87,34 @@ class SettingsScreen extends StatelessWidget {
               ],
             ),
 
-            // FFmpeg
-            _Section(
-              title: 'FFmpeg',
-              children: [
-                SwitchListTile(
-                  title: Text(t('ffmpegEnabled')),
-                  subtitle: sp.ffmpegPath.isNotEmpty
-                      ? Text(sp.ffmpegPath, overflow: TextOverflow.ellipsis)
-                      : null,
-                  value: sp.allowFfmpeg,
-                  onChanged: sp.setAllowFfmpeg,
-                ),
-              ],
-            ),
+            // FFmpeg is not bundled on Android. The backend automatically uses
+            // progressive formats, so there is no useful toggle to expose here.
 
             // Theme
             _Section(
               title: t('theme'),
               children: [
-                RadioListTile<String>(
-                  title: Text(t('dark')),
-                  value: 'dark',
+                RadioGroup<String>(
                   groupValue: sp.themeMode,
-                  onChanged: (v) => sp.setThemeMode(v!),
-                ),
-                RadioListTile<String>(
-                  title: Text(t('light')),
-                  value: 'light',
-                  groupValue: sp.themeMode,
-                  onChanged: (v) => sp.setThemeMode(v!),
-                ),
-                RadioListTile<String>(
-                  title: Text(t('oled')),
-                  value: 'oled',
-                  groupValue: sp.themeMode,
-                  onChanged: (v) => sp.setThemeMode(v!),
+                  onChanged: (v) {
+                    if (v != null) sp.setThemeMode(v);
+                  },
+                  child: Column(
+                    children: [
+                      RadioListTile<String>(
+                        title: Text(t('dark')),
+                        value: 'dark',
+                      ),
+                      RadioListTile<String>(
+                        title: Text(t('light')),
+                        value: 'light',
+                      ),
+                      RadioListTile<String>(
+                        title: Text(t('oled')),
+                        value: 'oled',
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -131,17 +123,23 @@ class SettingsScreen extends StatelessWidget {
             _Section(
               title: t('language'),
               children: [
-                RadioListTile<String>(
-                  title: Text(t('english')),
-                  value: 'en',
+                RadioGroup<String>(
                   groupValue: sp.language,
-                  onChanged: (v) => sp.setLanguage(v!),
-                ),
-                RadioListTile<String>(
-                  title: Text(t('arabic')),
-                  value: 'ar',
-                  groupValue: sp.language,
-                  onChanged: (v) => sp.setLanguage(v!),
+                  onChanged: (v) {
+                    if (v != null) sp.setLanguage(v);
+                  },
+                  child: Column(
+                    children: [
+                      RadioListTile<String>(
+                        title: Text(t('english')),
+                        value: 'en',
+                      ),
+                      RadioListTile<String>(
+                        title: Text(t('arabic')),
+                        value: 'ar',
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -154,9 +152,7 @@ class SettingsScreen extends StatelessWidget {
                   title: Text(t('appName')),
                   subtitle: Text(t('version')),
                 ),
-                ListTile(
-                  title: Text(t('appDescription')),
-                ),
+                ListTile(title: Text(t('appDescription'))),
               ],
             ),
           ],
@@ -173,9 +169,7 @@ class SettingsScreen extends StatelessWidget {
   }
 
   void _pickCookieFile(BuildContext context, SettingsProvider sp) async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.any,
-    );
+    final result = await FilePicker.platform.pickFiles(type: FileType.any);
     if (result != null && result.files.isNotEmpty) {
       sp.setCookieFile(result.files.first.path ?? '');
     }
@@ -200,8 +194,8 @@ class _Section extends StatelessWidget {
             child: Text(
               title,
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
+                color: Theme.of(context).colorScheme.primary,
+              ),
             ),
           ),
           ...children,

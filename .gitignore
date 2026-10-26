@@ -60,6 +60,3 @@ desktop.ini
 .coverage
 coverage/
 htmlcov/
-
-# AI-generated project context (opencode)
-AGENTS.md

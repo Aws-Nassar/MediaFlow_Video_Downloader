@@ -120,13 +120,19 @@ def _format_selector(ext, quality, is_audio, allow_ffmpeg):
             return f"bestvideo[height<={height}]+bestaudio/best[height<={height}]/best"
         return "bestvideo+bestaudio/best"
 
+    # Without FFmpeg we cannot merge separate video/audio streams. Pick a
+    # progressive format that already contains both, otherwise the result is a
+    # silent video file.
     if quality == "Worst":
-        return "worstvideo/worst"
+        return "worst[acodec!=none][vcodec!=none]/worst"
     match = re.match(r"(\d+)p", quality)
     if match:
         height = int(match.group(1))
-        return f"bestvideo[height<={height}]/best[height<={height}]/best"
-    return "bestvideo/best"
+        return (
+            f"best[height<={height}][acodec!=none][vcodec!=none]/"
+            "best[acodec!=none][vcodec!=none]/best"
+        )
+    return "best[acodec!=none][vcodec!=none]/best"
 
 
 def _build_ydl_opts(output_dir, ext, quality, is_audio, progress_hook, options):
@@ -180,8 +186,11 @@ def _build_ydl_opts(output_dir, ext, quality, is_audio, progress_hook, options):
     opts = _base_opts(playlist=playlist)
     opts["cachedir"] = False
     opts["overwrites"] = True
-    opts["extractor_args"] = {"youtube": {"player_client": ["android"]}}
+    opts["extractor_args"] = {"youtube": {"player_client": ["web", "default"]}}
     opts["allow_unplayable_formats"] = True
+    # Desktop-proven throttling workarounds; also helps mobile networks.
+    opts["http_chunk_size"] = 10485760
+    opts["throttledratelimit"] = 102400
     quality_suffix = _format_quality_suffix(quality)
     outtmpl = outtmpl.replace(".%(ext)s", quality_suffix + ".%(ext)s")
     opts.update(
@@ -194,7 +203,9 @@ def _build_ydl_opts(output_dir, ext, quality, is_audio, progress_hook, options):
             "writesubtitles": bool(options.get("subs") and allow_ffmpeg),
             "subtitleslangs": ["en"] if options.get("subs") and allow_ffmpeg else [],
             "writethumbnail": bool(options.get("embed_thumb") and allow_ffmpeg),
-            "concurrent_fragment_downloads": int(options.get("concurrent", 1)),
+            "concurrent_fragment_downloads": int(
+                options.get("concurrent", options.get("concurrent_fragments", 1))
+            ),
         }
     )
 
@@ -202,7 +213,9 @@ def _build_ydl_opts(output_dir, ext, quality, is_audio, progress_hook, options):
     if ffmpeg_path:
         opts["ffmpeg_location"] = ffmpeg_path
 
-    cookie_file = str(options.get("cookie_file", "")).strip()
+    cookie_file = str(
+        options.get("cookie_file", options.get("cookiefile", ""))
+    ).strip()
     if cookie_file and os.path.isfile(cookie_file):
         opts["cookiefile"] = cookie_file
 
@@ -214,7 +227,7 @@ def fetch_info(url, playlist=False, cookie_file=""):
         opts = _base_opts(playlist=playlist)
         opts["cachedir"] = False
         opts["skip_download"] = True
-        opts["extractor_args"] = {"youtube": {"player_client": ["android"]}}
+        opts["extractor_args"] = {"youtube": {"player_client": ["web", "default"]}}
         if cookie_file and os.path.isfile(cookie_file):
             opts["cookiefile"] = cookie_file
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -307,6 +320,7 @@ def download(url, output_dir, ext, quality, is_audio, options_json, progress_cal
                 "elapsed": elapsed,
                 "output_dir": output_dir,
                 "downloaded_files": downloaded_files,
+                "file_path": downloaded_files[0] if downloaded_files else None,
             }
         )
     except Exception as exc:

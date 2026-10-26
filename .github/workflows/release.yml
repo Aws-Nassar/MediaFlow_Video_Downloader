@@ -59,6 +59,13 @@ jobs:
           java-version: '17'
           distribution: temurin
 
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.44.0'
+          cache: true
+
       - name: Set up Android SDK & NDK
         uses: android-actions/setup-android@v3
         with:
@@ -81,18 +88,26 @@ jobs:
           echo "Found Python at: $PYTHON"
           python --version
 
-      - name: Build debug APK
-        working-directory: Videos_Downloader_Mobile
+      - name: Get Flutter dependencies
+        working-directory: MediaFlow_Mobile
+        run: flutter pub get
+
+      - name: Analyze and test
+        working-directory: MediaFlow_Mobile
         run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          flutter analyze
+          flutter test
+
+      - name: Build debug APK
+        working-directory: MediaFlow_Mobile
+        run: flutter build apk --debug
         env:
           CHAQUOPY_BUILD_PYTHON: ${{ steps.python-path.outputs.path }}
 
       - uses: actions/upload-artifact@v4
         with:
           name: MediaFlow-Android
-          path: Videos_Downloader_Mobile/app/build/outputs/apk/debug/app-debug.apk
+          path: MediaFlow_Mobile/build/app/outputs/flutter-apk/app-debug.apk
 
   build-linux:
     name: Build Linux binary

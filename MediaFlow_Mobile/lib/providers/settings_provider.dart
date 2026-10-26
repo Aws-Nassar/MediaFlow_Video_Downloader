@@ -89,9 +89,9 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   Map<String, dynamic> toPythonOptions() => {
-        'concurrent_fragments': _concurrentFragments,
-        'cookiefile': _cookieFile,
-        'allow_ffmpeg': _allowFfmpeg,
-        'ffmpeg_path': _ffmpegPath,
-      };
+    'concurrent': _concurrentFragments,
+    'cookie_file': _cookieFile,
+    'allow_ffmpeg': _allowFfmpeg,
+    'ffmpeg_path': _ffmpegPath,
+  };
 }

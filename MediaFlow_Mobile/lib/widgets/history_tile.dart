@@ -1,5 +1,7 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
+
 import '../l10n/l10n.dart';
 import '../models/download_item.dart';
 
@@ -22,6 +24,8 @@ class HistoryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = AppLocalizations.of(context)!;
+    final path = item.filePath;
+    final exists = path != null && File(path).existsSync();
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -34,34 +38,16 @@ class HistoryTile extends StatelessWidget {
                   width: 56,
                   height: 56,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
-                    width: 56,
-                    height: 56,
-                    color: Colors.grey[900],
-                    child: Icon(
-                      item.isAudio ? Icons.audiotrack : Icons.movie,
-                      color: Colors.grey,
-                    ),
-                  ),
+                  errorBuilder: (_, _, _) => _placeholder(),
                 ),
               )
-            : Container(
-                width: 56,
-                height: 56,
-                color: Colors.grey[900],
-                child: Icon(
-                  item.isAudio ? Icons.audiotrack : Icons.movie,
-                  color: Colors.grey,
-                ),
-              ),
-        title: Text(
-          item.title,
+            : _placeholder(),
+        title: Text(item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+        subtitle: Text(
+          _subtitle(t, exists),
+          style: Theme.of(context).textTheme.bodySmall,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Text(
-          '${item.ext.toUpperCase()} · ${item.quality}',
-          style: Theme.of(context).textTheme.bodySmall,
         ),
         trailing: PopupMenuButton<String>(
           onSelected: (v) {
@@ -78,7 +64,7 @@ class HistoryTile extends StatelessWidget {
             }
           },
           itemBuilder: (_) => [
-            if (item.filePath != null && File(item.filePath!).existsSync())
+            if (exists)
               PopupMenuItem(
                 value: 'share',
                 child: ListTile(
@@ -87,7 +73,7 @@ class HistoryTile extends StatelessWidget {
                   dense: true,
                 ),
               ),
-            if (item.filePath != null && File(item.filePath!).existsSync())
+            if (exists)
               PopupMenuItem(
                 value: 'open',
                 child: ListTile(
@@ -100,7 +86,10 @@ class HistoryTile extends StatelessWidget {
               value: 'delete',
               child: ListTile(
                 leading: const Icon(Icons.delete, color: Colors.red),
-                title: Text(t('delete'), style: const TextStyle(color: Colors.red)),
+                title: Text(
+                  t('delete'),
+                  style: const TextStyle(color: Colors.red),
+                ),
                 dense: true,
               ),
             ),
@@ -108,5 +97,40 @@ class HistoryTile extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Widget _placeholder() {
+    return Container(
+      width: 56,
+      height: 56,
+      color: Colors.grey[900],
+      child: Icon(
+        item.isAudio ? Icons.audiotrack : Icons.movie,
+        color: Colors.grey,
+      ),
+    );
+  }
+
+  String _subtitle(AppLocalizations t, bool exists) {
+    final parts = <String>['${item.ext.toUpperCase()} · ${item.quality}'];
+    if (!exists) {
+      parts.add(t('fileMissing'));
+    } else {
+      try {
+        parts.add(_formatBytes(File(item.filePath!).lengthSync()));
+      } catch (_) {
+        parts.add(t('fileMissing'));
+      }
+    }
+    return parts.join(' · ');
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    final kb = bytes / 1024;
+    if (kb < 1024) return '${kb.toStringAsFixed(1)} KB';
+    final mb = kb / 1024;
+    if (mb < 1024) return '${mb.toStringAsFixed(1)} MB';
+    return '${(mb / 1024).toStringAsFixed(1)} GB';
   }
 }

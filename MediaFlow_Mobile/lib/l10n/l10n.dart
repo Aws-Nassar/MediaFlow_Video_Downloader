@@ -9,14 +9,9 @@ class AppLocalizations {
     return Localizations.of<AppLocalizations>(context, AppLocalizations);
   }
 
-  static const localizationsDelegates = [
-    _AppLocalizationsDelegate(),
-  ];
+  static const localizationsDelegates = [_AppLocalizationsDelegate()];
 
-  static const supportedLocales = [
-    Locale('en'),
-    Locale('ar'),
-  ];
+  static const supportedLocales = [Locale('en'), Locale('ar')];
 
   String get _languageCode => locale.languageCode;
 
@@ -66,10 +61,12 @@ class AppLocalizations {
       'cancelled': 'Cancelled',
       'idle': 'Ready',
       'noHistory': 'No downloads yet',
+      'fileMissing': 'File missing',
       'share': 'Share',
       'openFile': 'Open',
       'delete': 'Delete',
       'confirmDelete': 'Delete this item?',
+      'confirmDeleteFile': 'Delete this file from disk?',
       'confirmClearHistory': 'Clear all history?',
       'yes': 'Yes',
       'no': 'No',
@@ -131,10 +128,12 @@ class AppLocalizations {
       'cancelled': 'ملغي',
       'idle': 'جاهز',
       'noHistory': 'لا توجد تحميلات سابقة',
+      'fileMissing': 'الملف غير موجود',
       'share': 'مشاركة',
       'openFile': 'فتح',
       'delete': 'حذف',
       'confirmDelete': 'حذف هذا العنصر؟',
+      'confirmDeleteFile': 'حذف هذا الملف من الجهاز؟',
       'confirmClearHistory': 'مسح كل السجل؟',
       'yes': 'نعم',
       'no': 'لا',
@@ -161,12 +160,12 @@ class AppLocalizations {
   };
 }
 
-class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {
+class _AppLocalizationsDelegate
+    extends LocalizationsDelegate<AppLocalizations> {
   const _AppLocalizationsDelegate();
 
   @override
-  bool isSupported(Locale locale) =>
-      ['en', 'ar'].contains(locale.languageCode);
+  bool isSupported(Locale locale) => ['en', 'ar'].contains(locale.languageCode);
 
   @override
   Future<AppLocalizations> load(Locale locale) =>
