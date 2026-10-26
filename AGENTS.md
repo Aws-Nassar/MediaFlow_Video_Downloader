@@ -4,8 +4,17 @@
 - Root is **MediaFlow Pro v2.1**, a single-file PyQt5 desktop app (`app.py`). It is the working reference.
 - `MediaFlow_Mobile/` is a Flutter Android app with a Python backend embedded via Chaquopy (`android/app/src/main/python/mediaflow_core.py`).
 - The Flutter app is a regression from the pre-Flutter Java app. Do not assume desktop parity or trust its current behavior.
-- Agreed rebuild direction (not scaffolded yet): one Flutter app, Windows + Android, specs in `specs/001-rebuild/`. Do not invent those paths without a task.
+- Agreed rebuild direction (not scaffolded yet): one Flutter app, Windows + Android. Specs now live in `specs/001-rebuild/`; proposed app path is `apps/mediaflow/`. Do not move or rewrite `app.py` or `MediaFlow_Mobile/`.
 - CI is `.github/workflows/release.yml`, triggered by `v*` tags. The Android leg now builds with Flutter on `MediaFlow_Mobile`; verify it on the next tag.
+
+## Rebuild direction
+- Product target: local-first multi-source downloader for Windows and Android. Read `specs/001-rebuild/README.md` first, then `product-spec.md`, `source-matrix.md`, `architecture.md`, `design-system.md`, `tasks.md`, and `decisions.md`.
+- UX reference: [anything.rip](https://anything.rip/). Use it only to validate the interaction model; do not copy its code, branding, or assets.
+- v1 sources: YouTube, TikTok, Facebook, Instagram, Kick, Twitch, SoundCloud, Google Drive public/authorized, direct HTTP, HLS/DASH, and generic yt-dlp hosts. Mega/Gofile are later; torrents and DRM services are out.
+- Content boundary: public or user-authorized content only. Never bypass DRM, paywalls, private-account controls, owner-disabled downloads, or Workspace policy. Restricted Google Drive files are terminal errors, not a challenge.
+- Sample URLs supplied for acceptance are private notes only. Do not commit them, downloaded media, cookies, or OAuth secrets. Automated tests use recorded JSON and fake engines.
+- Locked stack: Windows `yt-dlp.exe` + `ffmpeg.exe` subprocess; Android `youtubedl-android` + FFmpeg. No new Chaquopy/Python runtime in the rebuild.
+- Design: Studio Dark, one Flutter codebase, English/Arabic with RTL. See `design-system.md`.
 
 ## Commands
 
@@ -74,8 +83,9 @@ The root `MediaFlow_Mobile/` has no `gradlew`; the Android wrapper lives at `and
 - Do not add `MANAGE_EXTERNAL_STORAGE`; plan MediaStore/SAF instead.
 - No live URLs or real downloads in automated tests. Use recorded yt-dlp JSON and a fake executable.
 - Never log cookies, signed URLs, or tokens; never commit `cookies.txt`.
-- Keep user-facing strings localized; for the current app add them to `l10n.dart`.
-- Ask before adding a dependency; there is no ADR process yet.
+- Keep user-facing strings localized; for the current app add them to `l10n.dart`; for the rebuild use ARB/gen-l10n.
+- Ask before adding a dependency and record accepted/proposed decisions in `specs/001-rebuild/decisions.md`.
+- Never add bypass logic for DRM, paywalls, private accounts, owner-disabled Google Drive downloads, or Workspace policy. Explain the restriction and offer an authorized path.
 - Verify with the commands above and report the output. Do not claim a build or fix without running it.
 - PyQt5 is GPL/commercial; check licensing before distributing a Python desktop build.
 
