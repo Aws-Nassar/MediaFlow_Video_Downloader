@@ -142,10 +142,17 @@ Suggested commit: `feat(sources): add v1 multi-source adapters and tests`.
 
 Entry: v1 single-item flows stable; link-shared Drive parser fixtures ready.
 
+Status: link parsing, public folder HTML parsing, recursive expansion,
+depth/item/cycle guards, and collection-entry jobs are implemented with
+fixtures. The HTTP adapter, selection sheet, ZIP, native export, and manual
+acceptance remain.
+
 - [ ] Collection probe/expand/select for playlists and folders.
+- [x] Expand parsed collection entries into individual jobs.
 - [ ] Persist collection items and per-item status.
-- [ ] Google Drive ID parsing and link-shared file download.
-- [ ] Drive folder listing via public folder HTML; recursion, limits, cycle
+- [x] Google Drive ID parsing.
+- [ ] Link-shared Drive file download over HTTP.
+- [x] Drive folder listing via public folder HTML; recursion, limits, cycle
   detection.
 - [ ] Drive selection sheet with "Download all" and "Download as ZIP."
 - [ ] Streaming/ZIP64 folder ZIP from successful files; skipped-file report.
