@@ -2,7 +2,8 @@ import '../../models/media_models.dart';
 import '../../sources/source_adapter.dart';
 import 'ytdlp_engine.dart';
 
-class YtDlpSourceAdapter implements SourceAdapter {
+class YtDlpSourceAdapter
+    implements SourceAdapter, OutputDirectoryAware, EngineInfo {
   final YtDlpEngine engine;
 
   YtDlpSourceAdapter(this.engine);
@@ -11,7 +12,16 @@ class YtDlpSourceAdapter implements SourceAdapter {
   String get id => 'yt-dlp';
 
   @override
+  bool get isDemoEngine => false;
+
+  @override
+  String get engineLabel => engine.hasFfmpeg ? 'yt-dlp + FFmpeg' : 'yt-dlp';
+
+  @override
   bool canHandle(Uri uri) => uri.scheme == 'http' || uri.scheme == 'https';
+
+  @override
+  void setOutputDirectory(String path) => engine.setOutputDirectory(path);
 
   @override
   Future<MediaDescriptor> probe(Uri uri, {required DownloadType downloadType}) {

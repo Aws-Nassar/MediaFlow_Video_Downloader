@@ -9,10 +9,17 @@ import '../sources/source_adapter.dart';
 import '../theme/studio_theme.dart';
 
 class AppState extends ChangeNotifier {
-  AppState({SourceAdapter? adapter, int concurrency = 2})
-    : adapter = adapter ?? FakeSourceAdapter(),
-      concurrency = concurrency.clamp(1, 4) {
+  AppState({
+    SourceAdapter? adapter,
+    int concurrency = 2,
+    this.outputDirectory = 'Downloads/MediaFlow',
+  }) : adapter = adapter ?? FakeSourceAdapter(),
+       concurrency = concurrency.clamp(1, 4) {
     registry = SourceRegistry([this.adapter]);
+    final current = this.adapter;
+    if (current is OutputDirectoryAware) {
+      (current as OutputDirectoryAware).setOutputDirectory(outputDirectory);
+    }
   }
 
   final SourceAdapter adapter;
@@ -28,7 +35,7 @@ class AppState extends ChangeNotifier {
   AppStrings strings = const AppStrings(Locale('en'));
   StudioThemeMode themeMode = StudioThemeMode.dark;
   DownloadType downloadType = DownloadType.video;
-  String outputDirectory = 'Downloads/MediaFlow';
+  String outputDirectory;
   int concurrency;
   bool isAnalyzing = false;
   String? analyzeError;
@@ -59,6 +66,15 @@ class AppState extends ChangeNotifier {
   int get activeCount => activeJobs.length;
 
   bool get isArabic => locale.languageCode == 'ar';
+
+  String get engineLabel {
+    final current = adapter;
+    if (current is EngineInfo) {
+      final info = current as EngineInfo;
+      return info.isDemoEngine ? strings.fakeEngine : info.engineLabel;
+    }
+    return strings.fakeEngine;
+  }
 
   TextDirection get textDirection =>
       isArabic ? TextDirection.rtl : TextDirection.ltr;
@@ -94,6 +110,10 @@ class AppState extends ChangeNotifier {
     final trimmed = value.trim();
     if (trimmed.isEmpty) return;
     outputDirectory = trimmed;
+    final current = adapter;
+    if (current is OutputDirectoryAware) {
+      (current as OutputDirectoryAware).setOutputDirectory(trimmed);
+    }
     _notify();
   }
 

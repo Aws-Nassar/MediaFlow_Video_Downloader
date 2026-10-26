@@ -20,7 +20,7 @@ class YtDlpEngine {
 
   final String executablePath;
   final String? ffmpegPath;
-  final String outputDirectory;
+  String outputDirectory;
   final EngineProcessRunner runner;
   final Duration probeTimeout;
   final int retries;
@@ -28,6 +28,12 @@ class YtDlpEngine {
   final Map<String, _RunningDownload> _running = {};
 
   bool get hasFfmpeg => ffmpegPath != null && ffmpegPath!.trim().isNotEmpty;
+
+  void setOutputDirectory(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return;
+    outputDirectory = trimmed;
+  }
 
   Future<MediaDescriptor> probe(
     Uri uri, {
@@ -172,15 +178,12 @@ class YtDlpEngine {
     final stderrDone = _collect(process.stderrLines, stderr.add);
     String? finalPath;
     int? lastTotal;
-    var lastFraction = 0.0;
 
     try {
       await for (final line in process.stdoutLines) {
         final progress = parseYtDlpProgressLine(line);
         if (progress != null) {
           running.partialPath = progress.partialPath ?? running.partialPath;
-          if (progress.fraction + 0.0001 < lastFraction) continue;
-          lastFraction = progress.fraction;
           if (progress.totalBytes > 0) lastTotal = progress.totalBytes;
           yield progress;
           continue;

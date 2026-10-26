@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mediaflow/models/media_models.dart';
 import 'package:mediaflow/sources/fake_source_adapter.dart';
+import 'package:mediaflow/sources/source_adapter.dart';
 import 'package:mediaflow/state/app_state.dart';
 
 Future<void> _waitForSummary(AppState state) async {
@@ -100,4 +101,49 @@ void main() {
     expect(state.jobs.single.status, JobStatus.completed);
     expect(state.jobs.single.filePath, endsWith('.m4a'));
   });
+
+  test('forwards output directory and exposes the real engine label', () {
+    final adapter = _AwareStub();
+    final state = AppState(adapter: adapter, outputDirectory: 'D:/MediaFlow');
+    addTearDown(state.dispose);
+
+    expect(adapter.outputDirectory, 'D:/MediaFlow');
+    expect(state.engineLabel, 'yt-dlp + FFmpeg');
+
+    state.setOutputDirectory('E:/Downloads');
+
+    expect(adapter.outputDirectory, 'E:/Downloads');
+    expect(state.outputDirectory, 'E:/Downloads');
+  });
+}
+
+class _AwareStub implements SourceAdapter, OutputDirectoryAware, EngineInfo {
+  String? outputDirectory;
+
+  @override
+  String get id => 'real';
+
+  @override
+  bool get isDemoEngine => false;
+
+  @override
+  String get engineLabel => 'yt-dlp + FFmpeg';
+
+  @override
+  bool canHandle(Uri uri) => true;
+
+  @override
+  void setOutputDirectory(String path) => outputDirectory = path;
+
+  @override
+  Future<MediaDescriptor> probe(Uri uri, {required DownloadType downloadType}) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Stream<DownloadEvent> download(DownloadJob job) =>
+      const Stream<DownloadEvent>.empty();
+
+  @override
+  Future<void> cancel(String jobId) async {}
 }

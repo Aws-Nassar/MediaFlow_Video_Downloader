@@ -31,6 +31,12 @@ void main() {
         ),
         'My Video.mp4',
       );
+      expect(
+        SourceRegistry.fallbackTitle(
+          Uri.parse('https://www.youtube.com/watch?v=fixture123'),
+        ),
+        'YouTube fixture123',
+      );
     });
 
     test('resolves the fake adapter for http links', () {

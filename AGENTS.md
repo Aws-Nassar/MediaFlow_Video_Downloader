@@ -62,7 +62,7 @@ flutter build windows --debug
 ```
 APK output: `apps\mediaflow\build\app\outputs\flutter-apk\app-debug.apk`.
 
-The rebuild is a Phase 2 fake-engine vertical slice: no real downloads, no network, no persistence, and no extra packages beyond Flutter/lints/test. The Windows runner has not been built because this machine has no Visual Studio C++ toolchain; the Android debug APK builds. `MaterialApp.locale` is pinned to English until `flutter_localizations`/ARB is approved; the app strings and `Directionality` still switch to Arabic. Do not claim Windows runtime verification until the toolchain is installed.
+The rebuild has the Phase 2 fake-engine vertical slice plus a Phase 3 Windows yt-dlp bridge. `createDefaultSourceAdapter()` keeps the `example.com` and `demo-mixed` sample links on the offline fake adapter and uses the real engine for other URLs when `EnginePaths` finds `yt-dlp.exe`. Search order: `MEDIAFLOW_YTDLP`, the working directory, the app directory, then a `tools` folder beside either. FFmpeg uses `MEDIAFLOW_FFMPEG` and the same layout. Binaries are gitignored and currently absent here, so no real download has run. The Windows runner still cannot be built because this machine has no Visual Studio C++ toolchain; the Android debug APK builds. `MaterialApp.locale` is pinned to English until `flutter_localizations`/ARB is approved; the app strings and `Directionality` still switch to Arabic. Do not claim Windows runtime verification until the toolchain is installed and a manual download succeeds.
 
 ## Mobile contract (Phase 0 rescue)
 - Python emits `percent` in `0..1`; `normalizePercent()` now accepts `0..1` and `0..100` and is covered by tests.
@@ -95,7 +95,8 @@ The rebuild is a Phase 2 fake-engine vertical slice: no real downloads, no netwo
 - Mobile: `YtdlpService` wraps the MethodChannel/EventChannel; `PythonBridge.kt` starts Chaquopy and calls `mediaflow_core.py`. `l10n.dart` is a manual en/ar string map, not ARB/gen-l10n. `lib/services/download_contract.dart` holds the pure progress/result helpers and their tests.
 - Correct pre-Flutter behavior is in git history: `git show 81008d4^:Videos_Downloader_Mobile/app/src/main/java/com/mediaflow/android/MainActivity.java`. It scales `percent*1000`, reads `downloaded_files`, and scans real files for play/share/delete.
 - `hooks/hook_ffmpeg_path.py` puts bundled FFmpeg on PATH at runtime.
-- Rebuild: `apps/mediaflow/lib/state/app_state.dart` owns the in-memory queue, scheduler, retries, and batch summaries. `FakeSourceAdapter` is the only engine for now; it simulates login/permission/owner-disabled failures from URL text. Tests inject zero-delay fakes and never use live URLs. The app uses built-in `ChangeNotifier`/`InheritedNotifier`, not `provider`.
+- Rebuild: `apps/mediaflow/lib/state/app_state.dart` owns the in-memory queue, scheduler, retries, and batch summaries. `CompositeSourceAdapter` routes the demo URLs to `FakeSourceAdapter` and other http(s) URLs to `YtDlpSourceAdapter` when the engine exists; `OutputDirectoryAware` forwards Settings changes into the engine. Tests inject zero-delay fakes or fake processes and never use live URLs. The app uses built-in `ChangeNotifier`/`InheritedNotifier`, not `provider`.
+- Rebuild engine: `lib/engine/ytdlp/` holds the command builder, JSON/progress parser, error mapper/redaction, process abstraction, and `YtDlpEngine`. `--print` implies simulation, so the download args must keep `--no-simulate`; removing it turns downloads into metadata-only runs. YouTube playlists are rejected until collection expansion lands; do not return a fake collection from a single probe.
 
 ## Rules
 - Commit and push each completed step to `origin/main`; do not leave finished work sitting only in the worktree.

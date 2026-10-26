@@ -237,10 +237,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _AboutRow(label: strings.version, value: '0.1.0 · Phase 2'),
+                    _AboutRow(label: strings.version, value: '0.1.0 · Phase 3'),
                     _AboutRow(
                       label: strings.engineLabel,
-                      value: strings.fakeEngine,
+                      value: state.engineLabel,
                     ),
                     const SizedBox(height: 10),
                     Text(

@@ -1,23 +1,35 @@
 import '../models/media_models.dart';
 import 'source_adapter.dart';
 
-class FakeSourceAdapter implements SourceAdapter {
+class FakeSourceAdapter implements SourceAdapter, EngineInfo {
   final Duration probeDelay;
   final Duration stepDelay;
   final int steps;
+  final bool Function(Uri uri)? matcher;
   final Set<String> _cancelled = <String>{};
 
   FakeSourceAdapter({
     this.probeDelay = const Duration(milliseconds: 280),
     this.stepDelay = const Duration(milliseconds: 90),
     this.steps = 18,
+    this.matcher,
   });
 
   @override
   String get id => 'fake';
 
   @override
-  bool canHandle(Uri uri) => uri.scheme == 'http' || uri.scheme == 'https';
+  bool get isDemoEngine => true;
+
+  @override
+  String get engineLabel => 'Demo engine';
+
+  @override
+  bool canHandle(Uri uri) {
+    final matcher = this.matcher;
+    if (matcher != null) return matcher(uri);
+    return uri.scheme == 'http' || uri.scheme == 'https';
+  }
 
   @override
   Future<MediaDescriptor> probe(

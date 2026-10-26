@@ -245,3 +245,24 @@ The UI needs a dedicated failure card and summary sheet.
 
 **Consequences:** Large folders need progress, cancellation, and a free-space
 check. Individual downloads remain the more resumable option.
+
+## ADR-017 — Bundled engine discovery and demo routing
+
+**Status:** Accepted
+
+**Decision:**
+- Discover `yt-dlp`/`ffmpeg` without relying on the user's PATH: check
+  `MEDIAFLOW_YTDLP`/`MEDIAFLOW_FFMPEG`, then the working directory, the app
+  directory, and a `tools` folder beside either.
+- If the real engine is present, route normal http(s) URLs to it. Keep only the
+  documented `example.com` and `demo-mixed` sample links on the offline fake
+  adapter.
+- If the real engine is absent, unsupported URLs fail with `engineMissing` or
+  `unsupportedUrl`; do not simulate a successful download.
+- Keep the engine binaries out of git and verify them locally.
+
+**Consequences:** The app can run the demo without binaries and use the real
+engine when packaged. A release package must place both executables where the
+resolver can find them; missing binaries are a visible failure, not a silent
+fake download.
+

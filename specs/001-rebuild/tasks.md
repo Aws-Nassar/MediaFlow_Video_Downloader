@@ -67,14 +67,21 @@ slice`.
 
 Entry: Phase 2 done; dependency approval for the engine path.
 
+Status: bridge implemented and wired behind auto-detection. The binaries are
+not in the repo yet and the Windows runner still cannot be built on this
+machine, so no public YouTube download has been run.
+
 - [ ] Bundle `yt-dlp.exe` and `ffmpeg.exe` paths for dev/release.
-- [ ] Implement JSON-marker progress parsing and final-path capture.
-- [ ] Implement probe, download, cancel, retry, and error classification.
-- [ ] Wire YouTube single video and Shorts.
-- [ ] Add format/quality selection and audio-only.
+- [x] Implement JSON-marker progress parsing and final-path capture.
+- [x] Implement probe, download, cancel, and error classification (retry is
+  still the existing manual retry-failed action).
+- [x] Wire YouTube single video and Shorts (not runtime-verified).
+- [ ] Add format/quality selection and audio-only. Audio-only works; the
+  quality picker is still pending.
 - [ ] Persist jobs and file paths to SQLite (or the approved store).
-- [ ] Add engine-version display and a missing-engine error.
-- [ ] Add tests with recorded yt-dlp JSON and a fake executable.
+- [ ] Add engine-version display and a missing-engine error. The missing-engine
+  error and engine label are implemented; version display is pending.
+- [x] Add tests with representative yt-dlp JSON and a fake process (no network).
 
 Acceptance:
 - A public YouTube video downloads with the best merged quality.

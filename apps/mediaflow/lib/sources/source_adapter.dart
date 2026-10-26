@@ -12,6 +12,16 @@ abstract interface class SourceAdapter {
   Future<void> cancel(String jobId);
 }
 
+abstract interface class OutputDirectoryAware {
+  void setOutputDirectory(String path);
+}
+
+abstract interface class EngineInfo {
+  bool get isDemoEngine;
+
+  String get engineLabel;
+}
+
 sealed class DownloadEvent {
   const DownloadEvent();
 }
@@ -87,9 +97,17 @@ class SourceRegistry {
   }
 
   static String fallbackTitle(Uri uri) {
+    final host = uri.host.toLowerCase().replaceFirst(RegExp(r'^www\.'), '');
     final segments = uri.pathSegments
         .where((segment) => segment.isNotEmpty)
         .toList();
+    if (host == 'youtu.be' && segments.isNotEmpty) {
+      return 'YouTube ${segments.first}';
+    }
+    final queryId = uri.queryParameters['v'];
+    if (queryId != null && queryId.isNotEmpty) {
+      return '${labelFor(uri)} $queryId';
+    }
     if (segments.isNotEmpty) {
       final last = Uri.decodeComponent(segments.last);
       if (last.length > 2) return last;
