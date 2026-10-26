@@ -98,6 +98,7 @@ The rebuild is a Phase 2 fake-engine vertical slice: no real downloads, no netwo
 - Rebuild: `apps/mediaflow/lib/state/app_state.dart` owns the in-memory queue, scheduler, retries, and batch summaries. `FakeSourceAdapter` is the only engine for now; it simulates login/permission/owner-disabled failures from URL text. Tests inject zero-delay fakes and never use live URLs. The app uses built-in `ChangeNotifier`/`InheritedNotifier`, not `provider`.
 
 ## Rules
+- Commit and push each completed step to `origin/main`; do not leave finished work sitting only in the worktree.
 - Do not rewrite or delete `app.py` during the rebuild; it is the reference. Keep rescue fixes separate from rebuild work.
 - New Android work targets `youtubedl-android`; do not add another Chaquopy/Python runtime.
 - Do not add `MANAGE_EXTERNAL_STORAGE`; plan MediaStore/SAF instead.
