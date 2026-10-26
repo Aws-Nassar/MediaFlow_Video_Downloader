@@ -45,9 +45,9 @@ MediaFlow, and expects the download to start with minimal friction. Often
 Arabic-speaking and uses RTL layout.
 
 ### Persona C — Drive batch user
-Has a Google Drive file or folder link and wants everything locally. Sometimes
-the folder is shared with their Google account; sometimes the owner has disabled
-downloads.
+Has a link-shared Google Drive file or folder and wants everything locally. The
+folder may be view-only or show no download button. Some individual files may be
+download-disabled by the owner.
 
 ### Core jobs
 - Download one video/audio item at the best available quality.
@@ -74,8 +74,8 @@ downloads.
 - Kick: clips and VODs.
 - Twitch: clips and VODs.
 - SoundCloud: tracks and playlists.
-- Google Drive: public files and folders; authorized files/folders via Google
-  OAuth (see the Drive decision in `decisions.md`).
+- Google Drive: link-shared files and folders ("anyone with the link"). No
+  Google account, OAuth, or API key. A missing download button is not a block.
 - Direct HTTP/HTTPS files, including HLS/DASH handled by the engine.
 - A generic fallback for URLs the bundled yt-dlp build supports.
 
@@ -87,11 +87,16 @@ downloads.
 - Progress: percent, downloaded/total, speed, ETA, current stage.
 - Cancel, retry, and remove.
 - Queue with configurable concurrency.
+- Batch-level download type (Video or Audio) with per-item override.
+- Per-item failure isolation: skip and continue, then summarize.
+- End-of-batch summary with counts, size, failed items, and retry-failed.
 - Live recording with an explicit stop control.
 - Collection expansion (playlist/folder) with per-item selection.
+- Drive folder download as individual files or as ZIP.
 
 **Library**
 - Persistent history with file path, size, source, status, timestamp.
+- Batch results stored with the failed/skipped list.
 - Missing-file detection.
 - Open, share, reveal in folder (Windows), delete history entry, delete file.
 
@@ -135,6 +140,7 @@ Acceptance:
 - A single URL begins analysis automatically after paste or a short debounce.
 - Multiple URLs produce a list of candidates; the user can analyze all.
 - Invalid or unsupported URLs are marked before download starts.
+- A blank line or duplicate URL is ignored, not treated as a failed item.
 
 ### FR-02 Source resolution
 A source registry maps URL patterns to adapters. The registry returns the most
@@ -147,12 +153,14 @@ Acceptance:
 
 ### FR-03 Metadata probe
 Before download, the app shows the best available metadata and capabilities:
-single vs collection, live, audio available, subtitles, auth requirements.
+single vs collection, live, audio available, subtitles, access requirements.
 
 Acceptance:
 - Probe failure produces a classified error and a recovery action.
 - A collection shows its item count before download.
 - The UI never blocks on a thumbnail; a placeholder is shown instead.
+- If the title cannot be read, the item shows a stable fallback name and the
+  original link.
 
 ### FR-04 Format selection
 The app offers source-appropriate choices and defaults to the best combined
@@ -165,6 +173,9 @@ Acceptance:
 - Audio-only mode produces the selected container/codec or the closest supported
   one, with a note when conversion is impossible.
 - "Best" never silently produces a silent video.
+- A Video/Audio choice can be applied to a whole batch; each item can override
+  it.
+- If an audio-only item fails, the failure card offers "Download video instead."
 
 ### FR-05 Download and progress
 A job moves through `queued → probing → downloading → processing → completed`
@@ -186,6 +197,7 @@ Acceptance:
 - Retry uses backoff and does not retry auth/permission/DRM failures.
 - Queue state survives app restart; interrupted jobs are recoverable.
 - One failed item does not stop the queue.
+- A batch summary appears when the last item settles.
 
 ### FR-07 Collections
 Playlists and Drive folders expand into items. The user can select all, none, or
@@ -195,6 +207,10 @@ Acceptance:
 - A 100-item playlist does not freeze the UI.
 - Folder recursion is bounded and cycle-safe.
 - Skipped/unsupported items are reported, not silently dropped.
+- A Drive folder can be downloaded as individual files or as a ZIP; the
+  selection screen offers both.
+- A ZIP contains only successful files; skipped files are listed in the batch
+  summary.
 
 ### FR-08 Live
 Live streams show a LIVE state and record until the user stops or the stream
@@ -211,11 +227,14 @@ action.
 
 Acceptance:
 - `loginRequired` / `cookiesExpired` offer "Add cookies" or "Open in browser."
-- `permissionDenied` and `downloadRestricted` explain the restriction and never
-  retry with bypass techniques.
+- `permissionDenied`, `downloadRestricted`, and `policyBlocked` explain the
+  restriction and never retry with bypass techniques.
 - `drmProtected` and `paywalled` are terminal.
 - `diskFull` offers "Change folder" and "Remove partial file."
 - `network` offers retry.
+- The failure card shows the item name, original link, short reason, and
+  expandable redacted details.
+- A batch continues after a failure and ends with a summary.
 
 ### FR-10 Library
 History is persistent and searchable. It records enough to reopen or share the
@@ -232,7 +251,8 @@ Settings are persisted and applied to new jobs immediately. Secrets are stored
 separately from ordinary preferences.
 
 Acceptance:
-- Cookie files and OAuth tokens never appear in logs or history.
+- Cookie files never appear in logs or history.
+- There is no Google sign-in or OAuth setting for Drive.
 - Changing the output folder does not move existing files.
 - Android never requests `MANAGE_EXTERNAL_STORAGE`.
 
@@ -273,6 +293,38 @@ Acceptance:
 - Android engine updates ship with app releases.
 - Logs redact cookies, authorization headers, and signed query parameters.
 
+### FR-16 Failure isolation and batch summary
+Every item owns its status and error. One failure never stops the batch.
+
+Acceptance:
+- Transient errors retry up to three times with backoff; auth, permission,
+  owner-disabled, DRM, paywall, and unsupported errors do not retry.
+- A failed item remains in the queue with Retry, Open in browser, Copy link, and
+  Remove actions.
+- The failure card shows the item name, original link, short reason, and
+  expandable redacted details.
+- The end-of-batch summary shows total/downloaded/failed/skipped counts, total
+  size, elapsed time, and the failed list with name, link, and reason.
+- "Retry failed" retries only failed items. "Copy failed links" copies the
+  original links, one per line.
+- The summary is persisted in History and survives an app restart.
+- A ZIP batch reports skipped files without failing the ZIP.
+- No raw stack trace, cookie, token, or signed media URL is shown in the summary.
+
+### FR-17 Link-shared Google Drive
+Drive files and folders that are readable by "anyone with the link" work without
+a Google account, OAuth, or an API key.
+
+Acceptance:
+- A link-shared file downloads with the correct name and size; large-file
+  confirmation is handled.
+- A link-shared folder lists its files and subfolders; recursion is bounded.
+- The folder selection screen offers "Download all" and "Download as ZIP."
+- A missing download button does not affect listing or downloading.
+- A file that requires sign-in or has downloads disabled is skipped with a
+  terminal reason; the rest of the folder continues.
+- No Google auth package, client ID, or token is added to the app.
+
 ## 7. UX flows
 
 ### Flow A — single link
@@ -291,12 +343,13 @@ Acceptance:
 4. Queue groups the batch and reports completed/failed counts.
 
 ### Flow C — Drive folder
-1. Paste a Drive folder link.
-2. App detects public vs authorized access.
-3. If public, folder listing loads; if private, app asks the user to sign in with
-   Google.
-4. User selects files, sees total size, starts the batch.
-5. Restricted files are listed as skipped with a reason.
+1. Paste a link-shared Drive folder link.
+2. App reads the folder listing; no sign-in or Google account is requested.
+3. Selection screen shows files/subfolders, total size, and both "Download all"
+   and "Download as ZIP."
+4. User selects files or the whole folder; the batch starts.
+5. Truly restricted files (sign-in required, owner-disabled, policy) are skipped
+   with a reason and included in the end-of-batch summary.
 
 ### Flow D — live
 1. Paste a live URL.
@@ -305,9 +358,12 @@ Acceptance:
 4. User stops; file is finalized and added to the library.
 
 ### Flow E — failure
-1. Probe or download fails.
-2. Error card states the cause and the action.
-3. User fixes cookies/folder/network and retries only the failed item.
+1. Probe or download fails for one item.
+2. The failure card shows the item name, original link, reason, and actions.
+3. The rest of the batch continues. The user can retry, open in browser, copy the
+   link, or skip.
+4. When the batch ends, the summary lists every failure and offers "Retry
+   failed."
 
 ## 8. Non-functional requirements
 
@@ -316,8 +372,8 @@ Acceptance:
 - **Responsiveness:** no main-thread I/O; large collections paginate.
 - **Reliability:** queue and history survive crashes; partial files are cleaned
   or resumable.
-- **Security:** no secrets in logs; OAuth tokens in secure storage; output paths
-  constrained to the chosen folder.
+- **Security:** no secrets in logs; no Google credentials are collected; output
+  paths constrained to the chosen folder.
 - **Accessibility:** 48dp touch targets, contrast AA, screen-reader labels, RTL.
 - **Privacy:** no analytics by default; diagnostics are opt-in and redacted.
 - **Compatibility:** Windows 10/11; Android 7.0+ (proposed `minSdk 24`, revisit
@@ -329,6 +385,10 @@ Acceptance:
   checklist on Windows and Android, using public test content.
 - Analyze → Download → Library works end-to-end on both platforms.
 - A 20-item playlist/folder completes with per-item results and no UI freeze.
+- A mixed batch with at least three failures completes the rest and shows a
+  summary with names, links, and reasons.
+- A link-shared Drive folder with no download button downloads as files and as a
+  ZIP.
 - An interrupted queue resumes after restart.
 - Arabic RTL golden tests pass.
 - `flutter analyze` is clean and all automated tests pass.
@@ -353,13 +413,16 @@ Use public, non-sensitive URLs. Do not commit the URLs or downloaded media.
 | S-11 | Twitch clip | clip downloads |
 | S-12 | Twitch VOD | VOD downloads; expired/subscriber-only is explained |
 | S-13 | SoundCloud track | audio downloads |
-| S-14 | Google Drive public file | direct download, size/name correct |
-| S-15 | Google Drive public folder | recursive listing, selection, batch |
-| S-16 | Google Drive authorized folder | OAuth sign-in, permitted files download |
+| S-14 | Google Drive link-shared file | direct download, size/name correct |
+| S-15 | Google Drive link-shared folder | recursive listing, selection, batch |
+| S-16 | Drive folder with no download button | files still download; no sign-in |
 | S-17 | Google Drive restricted file | clear terminal error; no bypass attempt |
 | S-18 | Direct MP4 | direct download with resume |
 | S-19 | HLS URL | engine/FFmpeg path produces playable file |
-| S-20 | Mixed batch | one failure does not stop others |
+| S-20 | Mixed batch | failures do not stop the rest; summary is correct |
+| S-21 | Drive folder ZIP | successful files zipped; skipped list reported |
+| S-22 | Audio-for-all batch | audio applies to all; fallback offered on failure |
+| S-23 | Batch summary | name/link/reason shown; retry failed works |
 
 ## 11. Risks
 
@@ -367,7 +430,7 @@ Use public, non-sensitive URLs. Do not commit the URLs or downloaded media.
 |---|---|
 | Sites change and extractors break | Pin engine versions; update cadence; error classification; no hard-coded per-site parsing where yt-dlp works |
 | Anti-bot / login walls | Cookie/browser import, clear guidance, no bypass claims |
-| Drive restrictions | OAuth for authorized access; explicit terminal errors for owner-disabled downloads |
+| Drive restrictions | Link-shared access only; parser tests; explicit terminal errors for sign-in-required, owner-disabled, and policy-blocked files |
 | Rate limits | Per-host concurrency, backoff, retry-after |
 | Large folders / disk pressure | Size preview, limits, free-space check |
 | Copyright / ToS | First-run notice, user-authorized scope, no hosting/proxying, no DRM |
@@ -376,10 +439,12 @@ Use public, non-sensitive URLs. Do not commit the URLs or downloaded media.
 
 ## 12. Open product questions
 
-1. Should Google Drive OAuth ship in v1.0 or v1.1? Restricted folders require
-   it, but it adds Google Cloud setup and mobile sign-in work.
-2. Is Mega/Gofile needed in the first release, or is the list above enough?
-3. Should the first release support image galleries (gallery-dl) or video/audio
+1. Should ZIP be the default for a Drive folder, or should the selection screen
+   always open first?
+2. Should subfolders be recursed by default, or only when the user expands them?
+3. Is "stop the whole batch on first error" needed as an optional setting?
+4. Is Mega/Gofile needed in the first release, or is the list above enough?
+5. Should the first release support image galleries (gallery-dl) or video/audio
    only?
-4. Is a Windows bookmarklet/browser helper important, or is paste enough?
-5. Which output template should be the default for Arabic titles?
+6. Is a Windows bookmarklet/browser helper important, or is paste enough?
+7. Which output template should be the default for Arabic titles?

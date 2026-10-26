@@ -21,34 +21,44 @@ device is still pending.
 - [x] Architecture.
 - [x] Studio Dark design system.
 - [x] Task backlog.
-- [ ] Review and accept the open decisions in `decisions.md`.
-- [ ] Confirm the v1 source list and Drive OAuth timing.
-- [ ] Confirm the new app directory and application ID.
-- [ ] Approve proposed dependencies.
+- [x] Review and accept the decisions in `decisions.md`.
+- [x] Confirm the v1 source list and that Drive is link-shared, with no OAuth.
+- [x] Confirm `apps/mediaflow/` and `com.mediaflow.app` for the scaffold.
+- [x] Avoid new dependencies for Phase 2; defer DB/HTTP/ZIP choices.
 
 Exit criteria: decisions accepted; no implementation starts on an unresolved
-dependency or storage policy.
+dependency or storage policy. Phase 2 uses no new packages.
 
 ## Phase 2 — Scaffold and vertical slice
 
 Entry: Phase 1 decisions accepted.
 
-- [ ] Create `apps/mediaflow/` Flutter app with Android + Windows targets.
-- [ ] Add theme, typography, tokens, and app shell (nav, responsive layout).
-- [ ] Add ARB localization (`en`, `ar`) and RTL smoke test.
-- [ ] Define domain models: `MediaDescriptor`, `DownloadJob`,
-  `DownloadEvent`, `MediaFlowError`.
-- [ ] Define `SourceAdapter`, `SourceRegistry`, and a fake adapter.
-- [ ] Implement `Analyze → Queue → Library` with the fake adapter, persisted in
+Status: implemented with the fake engine. Android debug APK builds; the Windows
+runner is implemented but not built because this machine has no Visual Studio
+C++ toolchain.
+
+- [x] Create `apps/mediaflow/` Flutter app with Android + Windows targets.
+- [x] Add theme, typography, tokens, and app shell (nav, responsive layout).
+- [x] Add a temporary `AppStrings` en/ar map and RTL smoke test; migrate to ARB
+  when the localization dependency is approved.
+- [x] Define domain models: `MediaDescriptor`, `DownloadJob`,
+  `DownloadEvent`, `MediaFlowError`, `BatchSummary`.
+- [x] Define `SourceAdapter`, `SourceRegistry`, and a fake adapter.
+- [x] Implement `Analyze → Queue → Library` with the fake adapter, persisted in
   memory.
-- [ ] Add widget/golden tests for Analyze empty/loaded and Queue active.
-- [ ] Keep `app.py` and `MediaFlow_Mobile/` untouched and runnable.
+- [x] Implement per-item failure cards, continue-on-error, and a batch summary.
+- [x] Add batch-level Video/Audio selection.
+- [x] Add widget tests for Analyze empty/loaded, Queue failed/summary, and the
+  Arabic RTL toggle.
+- [x] Keep `app.py` and `MediaFlow_Mobile/` untouched and runnable.
 
 Acceptance:
-- Windows app runs the vertical slice with a fake URL.
-- Android app shell builds and renders the same screens.
-- `flutter analyze` clean; tests pass; no live URLs.
-- Screens match the Studio Dark tokens.
+- [ ] Windows app runs the vertical slice with a fake URL (blocked by the missing
+  Visual Studio C++ toolchain).
+- [x] Android app shell builds and renders the same screens.
+- [x] A mixed batch with failures continues and shows name/link/reason at the end.
+- [x] `flutter analyze` clean; tests pass; no live URLs.
+- [x] Screens match the Studio Dark tokens.
 
 Suggested commit: `feat(app): scaffold unified Flutter shell and fake vertical
 slice`.
@@ -121,29 +131,33 @@ Acceptance:
 
 Suggested commit: `feat(sources): add v1 multi-source adapters and tests`.
 
-## Phase 6 — Collections and Google Drive
+## Phase 6 — Collections and link-shared Google Drive
 
-Entry: v1 single-item flows stable; Drive OAuth decision resolved.
+Entry: v1 single-item flows stable; link-shared Drive parser fixtures ready.
 
 - [ ] Collection probe/expand/select for playlists and folders.
 - [ ] Persist collection items and per-item status.
-- [ ] Google Drive ID parsing and public file download.
-- [ ] Drive public folder listing, recursion, pagination, limits.
-- [ ] Drive OAuth (desktop loopback + Android sign-in) if in v1.
+- [ ] Google Drive ID parsing and link-shared file download.
+- [ ] Drive folder listing via public folder HTML; recursion, limits, cycle
+  detection.
+- [ ] Drive selection sheet with "Download all" and "Download as ZIP."
+- [ ] Streaming/ZIP64 folder ZIP from successful files; skipped-file report.
 - [ ] Google-native export or skip.
-- [ ] Restriction errors: permission, owner-disabled, policy, quota.
+- [ ] Restriction errors: sign-in required, owner-disabled, policy, quota,
+  layout changed.
 - [ ] Size preview, free-space check, skip/continue.
-- [ ] Manual acceptance S-15…S-17 and S-20.
+- [ ] Manual acceptance S-14…S-17, S-20, S-21.
 
 Acceptance:
-- A public Drive folder with subfolders downloads selected files.
-- An authorized private folder works for an account with access.
+- A link-shared Drive folder with subfolders downloads selected files.
+- A folder with no download button still lists and downloads.
 - An owner-disabled file is reported as terminal; no bypass.
+- A ZIP contains successful files and reports skipped files.
 - A 100-item folder does not freeze the UI.
-- Tokens are stored securely and revocable.
+- No Google auth package, token, or sign-in control is present.
 
-Suggested commit: `feat(drive): add Google Drive files, folders, and authorized
-access`.
+Suggested commit: `feat(drive): add link-shared Google Drive files, folders, and
+ZIP`.
 
 ## Phase 7 — Queue, mobile intake, and resilience
 
@@ -157,12 +171,17 @@ Entry: core downloads and collections work.
 - [ ] Live recording flow and stop/finalize.
 - [ ] Disk-space and network-change handling.
 - [ ] Retry/backoff and `Retry-After`.
+- [ ] Persist per-item errors and batch summaries.
+- [ ] Failure card actions: retry, open browser, copy link, skip, remove.
+- [ ] Batch summary actions: retry failed, copy failed links, view report.
+- [ ] Android completion notification for a mixed batch.
 
 Acceptance:
 - Killing the app during a download and reopening offers resume/retry.
 - Sharing a link from TikTok/YouTube to MediaFlow opens Analyze.
 - A 20-item batch survives restart and completes.
 - Live stop finalizes and indexes the file.
+- A mixed batch summary survives restart and retries only failed items.
 
 Suggested commit: `feat(queue): persist jobs and add mobile share intake`.
 
@@ -172,7 +191,7 @@ Entry: end-to-end flows work.
 
 - [ ] Library search/filter/grid/list and missing-file states.
 - [ ] Open/share/reveal/delete with correct confirmations.
-- [ ] Settings sections and secure cookie/OAuth management.
+- [ ] Settings sections and secure cookie management; no Google sign-in.
 - [ ] Filename template and collision handling.
 - [ ] Studio Dark/Light/OLED themes.
 - [ ] Arabic RTL pass and golden tests.
@@ -197,7 +216,8 @@ Entry: v1 acceptance checklist passes.
 - [ ] Android release build with ABI splits and signing.
 - [ ] CI builds Windows and Android, runs analyze/tests.
 - [ ] Performance pass: startup, 10k library rows, 100-item folder.
-- [ ] Security review: path traversal, secret logging, OAuth state/PKCE.
+- [ ] Security review: path traversal, secret logging, Drive capability-URL
+  redaction, no Google credentials.
 - [ ] Legal/privacy notice and first-run copy.
 - [ ] Update README/AGENTS with the new app and release steps.
 - [ ] Device/emulator smoke test on Android; Windows 10/11 smoke test.
@@ -215,12 +235,14 @@ Suggested commit: `chore(release): package Windows and Android v1`.
 Do not add these until approved:
 
 - DB: `drift` + `sqlite3_flutter_libs` (preferred) or `sqflite` + FFI.
-- HTTP: `dio` (cancel/progress) or `http`.
-- Secure storage: `flutter_secure_storage`.
-- Drive: `google_sign_in`, `googleapis`, `googleapis_auth`.
+- HTTP: `dio` (cancel/progress) or Dart `HttpClient`.
+- ZIP: `archive` or a native per-platform streaming implementation.
 - Windows UX: `desktop_drop`, `window_manager`.
 - Utilities: `url_launcher`.
 - Android engine: `youtubedl-android` (locked decision).
+
+Do not add: `google_sign_in`, `googleapis`, `googleapis_auth`,
+`flutter_secure_storage` for Google tokens, or any OAuth client.
 
 Already present and reusable: `path_provider`, `file_picker`, `share_plus`,
 `open_filex`, `shared_preferences`, `provider`.
@@ -233,14 +255,16 @@ Already present and reusable: `path_provider`, `file_picker`, `share_plus`,
 - No live URLs or real downloads in tests.
 - No secrets in logs, fixtures, or commits.
 - Arabic strings added for new UI.
+- Failure cases have a name, original link, localized reason, and summary.
 - Docs/AGENTS updated if a trap or decision changed.
 - Build verified on the affected platform, or the reason stated.
 
 ## Suggested first sprint
 
-1. Accept decisions (app path, app ID, dependencies, Drive timing, Android
-   storage).
+1. Confirm app path/ID and keep Phase 2 dependency-free.
 2. Scaffold `apps/mediaflow`.
-3. Build the fake-engine vertical slice with Studio Dark and Arabic RTL.
+3. Build the fake-engine vertical slice with Studio Dark, Arabic RTL, failure
+   cards, and a batch summary.
 4. Add the Windows yt-dlp bridge for YouTube.
-5. Demo Analyze → Download → Library on Windows.
+5. Add link-shared Drive listing and ZIP.
+6. Demo Analyze → Download → Library on Windows.

@@ -119,7 +119,10 @@ Breakpoints:
 - After probe: media card with 16:9 thumbnail, duration pill, source badge,
   title, author.
 - Format row: type (Video/Audio), quality dropdown, container dropdown.
+- Batch-level Video/Audio segmented control when multiple links are queued.
 - Advanced disclosure: subtitles, thumbnail, playlist, cookies, live-from-start.
+- Drive folder: a selection sheet with file/subfolder checkboxes, total size,
+  "Download all," and "Download as ZIP."
 - Primary button: "Download" or "Add to queue."
 - Empty/error states explain supported sources and next actions.
 
@@ -130,7 +133,9 @@ Breakpoints:
 - Row: thumbnail, title, source, status, progress bar, speed/ETA, cancel/retry.
 - Collection groups: parent row with `3 of 12 completed`, expandable items.
 - Completed rows: Open, Share, Show in folder.
-- Failure rows: error code message + one primary recovery action.
+- Failure rows: thumbnail/fallback name, original link, short localized reason,
+  and actions. Expand for Details, Retry, Open in browser, Copy link, Skip.
+- When the batch settles, show a "Batch finished" summary sheet (see below).
 - Empty state: "Nothing downloading" + "Paste a link."
 
 ### Library
@@ -149,8 +154,9 @@ Sections: General, Downloads, Sources & cookies, Appearance, Storage, About.
 - General: language, theme, start screen.
 - Downloads: output folder, concurrency, retries, timeout, proxy, rate limit,
   filename template.
-- Sources & cookies: cookie file import, browser cookies (Windows), Google
-  account connect/disconnect, clear cookies.
+- Sources & cookies: cookie file import, browser cookies (Windows), clear
+  cookies. Google Drive is link-shared only; do not show a Google sign-in or
+  account-connect control.
 - Appearance: theme, reduced motion, compact density.
 - Storage: free space, default folder, clear cache/temp.
 - About: version, engine versions, licenses, privacy, legal notice, export
@@ -164,7 +170,8 @@ FFmpeg). Do not show a toggle for a capability that does not exist.
 A searchable list of engine-supported hosts and adapter-supported sources.
 Show "Powered by yt-dlp" with the engine version. Do not hardcode a "268+"
 claim; show the count reported by the engine. Each row can show a capability
-badge (Video, Audio, Live, Playlist, Auth).
+badge (Video, Audio, Live, Playlist, Cookies). Do not show a Google sign-in
+badge for Drive; it is link-shared only.
 
 ## 5. Components
 
@@ -201,6 +208,34 @@ badge (Video, Audio, Live, Playlist, Auth).
 - Destructive action is never the default focus.
 - Bottom sheets have a drag handle and safe-area padding.
 
+### Failure card
+- Appears in the queue and in the batch summary.
+- Shows the fallback/real title, source badge, original link (truncated with
+  Copy), and a one-line localized reason.
+- Primary action is the most useful recovery: Retry, Add cookies, Open in
+  browser, or Change folder.
+- Secondary actions: Copy link, Skip, Remove.
+- "Details" expands redacted technical text. Never show cookies, tokens, or
+  signed media URLs.
+- Use danger tint for terminal errors; warning tint for auth/rate-limit.
+
+### Batch summary
+- A bottom sheet on compact screens, a dialog/card on desktop.
+- Header: "Batch finished" or "12 items finished."
+- Counts: downloaded, failed, skipped; total size; elapsed time.
+- Failed list: title, original link, reason, Retry per item.
+- Actions: Retry failed, Copy failed links, Open folder, View report.
+- Dismissing the sheet keeps the summary in History.
+- If everything succeeded, show a compact success summary, not a long dialog.
+
+### Drive selection sheet
+- Header: folder name and item count.
+- Rows: checkbox, file/folder icon, name, size.
+- Subfolders can be expanded; recursion is on by default with a guard.
+- Footer: selected count, total size, "Download all," "Download as ZIP."
+- Blocked files are shown with a lock/alert icon and reason; they cannot be
+  selected.
+
 ### Toasts/snackbars
 - Use for non-blocking confirmations ("Added to queue", "Link copied").
 - Errors that need a decision belong in a card/dialog, not a toast.
@@ -213,9 +248,11 @@ badge (Video, Audio, Live, Playlist, Auth).
 - **Error:** error icon, plain-language cause, one primary action, details behind
   "Technical details."
 - **Offline:** banner with retry; queued jobs remain.
-- **Auth needed:** warning card with "Add cookies" / "Sign in" and "Open in
-  browser."
+- **Auth needed:** warning card with "Add cookies" and "Open in browser." Do not
+  show a Google sign-in option for Drive.
 - **Restricted:** explain the owner/admin restriction; no retry-as-bypass.
+- **Partial batch:** show a persistent summary chip ("9 downloaded · 2 failed")
+  that opens the batch summary.
 
 ## 7. Motion
 
@@ -265,9 +302,11 @@ badge (Video, Audio, Live, Playlist, Auth).
 | Analyze with media | Dark, OLED | en, ar | 360x800, 1280x800 |
 | Queue active | Dark | en, ar | 360x800, 1280x800 |
 | Queue failed | Dark | en, ar | 360x800 |
+| Failure card | Dark, Light | en, ar | 360x800, 1280x800 |
+| Batch summary | Dark | en, ar | 360x800, 1280x800 |
 | Library grid | Dark, Light | en, ar | 360x800, 1280x800 |
 | Settings | Dark | en, ar | 360x800, 1280x800 |
-| Drive folder sheet | Dark | en, ar | 360x800 |
+| Drive selection sheet | Dark | en, ar | 360x800 |
 
 ## 12. Do / don't
 
@@ -276,6 +315,8 @@ Do:
 - Use borders and spacing before shadows.
 - Make the URL field the visual anchor on Analyze.
 - Show real metadata and real progress.
+- Show the item name, original link, and reason on every failure.
+- Keep the batch moving and summarize at the end.
 - Explain restrictions without offering bypasses.
 
 Don't:
@@ -283,4 +324,6 @@ Don't:
 - Use brand colors as large fills.
 - Show a settings toggle for an unavailable capability.
 - Hide errors behind a generic "Something went wrong."
+- Stop the whole batch because one item failed (unless the user opted in).
+- Show a Google sign-in control for link-shared Drive.
 - Put destructive file deletion behind a single tap.

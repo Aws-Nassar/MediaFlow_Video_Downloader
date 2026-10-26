@@ -55,8 +55,10 @@ redacted.
 restricted, age-gated, or paywalled.
 
 **Decision:**
-- Support public content and content the user is authorized to access.
-- Use cookies or OAuth only to access what the user can already view.
+- Support link-shared/public content and content the user is authorized to
+  access.
+- Use cookies only for social sources and only for content the user can already
+  view. Do not add Google OAuth to the rebuild.
 - Refuse DRM, paywall, private-account, owner-disabled download, and policy
   bypass.
 - Never add "alternate endpoint" tricks to defeat a restriction.
@@ -80,16 +82,15 @@ components.
 
 ## ADR-006 — State management
 
-**Status:** Proposed
+**Status:** Accepted for scaffold
 
-**Options:**
-- `provider` / `ChangeNotifier`: already used in the rescue app; low migration
-  cost.
-- `riverpod`: better testability and async composition; new dependency and
-  learning curve.
+**Decision:** Use Flutter's built-in `ChangeNotifier` and `ListenableBuilder`
+for the Phase 2 vertical slice. No state-management package is added yet.
+Revisit if the queue/collection state becomes hard to test or compose.
 
-**Recommendation:** Keep `provider` for v1 if the team is small; revisit if the
-queue/collection state becomes hard to test.
+**Consequences:** Zero new dependencies for the scaffold; the app state stays
+plain Dart and is easy to unit-test. A package such as `provider` or `riverpod`
+can be adopted later without changing the domain model.
 
 ## ADR-007 — Persistence
 
@@ -101,51 +102,58 @@ queue/collection state becomes hard to test.
 - JSON files: not acceptable for queue state and 10k history rows.
 
 **Recommendation:** `drift` for typed jobs/collections/files and migrations.
-Requires dependency approval.
+Requires dependency approval. Phase 2 uses an in-memory repository so the
+vertical slice does not depend on this decision.
 
-## ADR-008 — Google Drive scope and timing
+## ADR-008 — Google Drive: link-shared access only, no OAuth
 
-**Status:** Open
+**Status:** Accepted
 
-**Context:** The user needs files/folders that may be private or restricted.
+**Context:** The user does not want to connect a Google account. The supplied
+lecture folders are link-shared: anonymous listing was verified (18 and 248
+entries), and the missing download button is a UI limitation, not a permission
+gate.
 
-**Options:**
-- A. v1.0 public Drive only; authorized Drive in v1.1.
-- B. v1.0 includes OAuth for authorized Drive on both platforms.
-- C. Public Drive only; authorized users use Drive for desktop and a local
-  folder.
+**Decision:**
+- Support link-shared files and folders ("anyone with the link") without OAuth,
+  a Google account, or an API key.
+- Read the public folder listing, recurse with guards, and download files via
+  public file endpoints. Handle large-file confirmation pages.
+- Support individual-file and ZIP folder downloads.
+- Truly restricted files (sign-in required), owner-disabled downloads, and
+  Workspace policy blocks are terminal per-file errors. Skip and report them;
+  never bypass them.
+- Do not add Google auth packages or store Google tokens.
 
-**Recommendation:** B if restricted folders are a must-have for the first
-release; otherwise A. In all cases, owner-disabled downloads are terminal and
-not bypassed. B requires a Google Cloud project, OAuth consent screen, desktop
-loopback flow, Android sign-in, and secure token storage.
+**Consequences:** Private Drive access is not supported. Google's public folder
+HTML can change, so the parser needs recorded-HTML tests and a clear "Drive
+layout changed" error. An optional app-owned API key can be a later reliability
+fallback, but it is not part of v1.
 
 ## ADR-009 — Android storage
 
-**Status:** Proposed
+**Status:** Accepted for scaffold; storage implementation pending
 
 **Context:** The rescue app declares `MANAGE_EXTERNAL_STORAGE`; the rebuild must
 not.
 
 **Decision:** Default to MediaStore `Downloads` on API 29+; custom folders via
 SAF. For API 24–28, use app-specific external storage + FileProvider, or a
-legacy write permission if a public folder is mandatory.
-
-**Open:** `minSdk` 24 vs 26. Recommendation: 26 if it simplifies storage and
-foreground-service behavior; confirm device coverage.
+legacy write permission if a public folder is mandatory. Scaffold `minSdk` is
+24; confirm before release. Never add `MANAGE_EXTERNAL_STORAGE`.
 
 ## ADR-010 — App location and identity
 
-**Status:** Open
+**Status:** Accepted for scaffold
 
-**Proposal:**
+**Decision:**
 - Code: `apps/mediaflow/`.
-- Application ID: `com.mediaflow.app` (Android) / `com.mediaflow.app` (Windows
-  package identity if MSIX).
+- Application ID: `com.mediaflow.app` (Android); use the same identity for a
+  future Windows package.
 - Display name: `MediaFlow`.
 
-**Consequences:** A new app can be installed alongside the rescue app during
-testing. The final ID must be chosen before signing/release.
+**Consequences:** The new app can be installed alongside the rescue app during
+testing. Confirm the final ID before signing a release.
 
 ## ADR-011 — Localization
 
@@ -155,7 +163,9 @@ testing. The final ID must be chosen before signing/release.
 drift.
 
 **Decision:** Move to Flutter `gen-l10n` with ARB files for English and Arabic.
-Use Western digits in Arabic UI.
+Use Western digits in Arabic UI. The Phase 2 scaffold uses a temporary
+`AppStrings` map (no dependency); migrate to ARB when the localization
+dependency is approved.
 
 **Consequences:** One more build step; better placeholder safety and RTL
 coverage. Keep the existing Arabic copy where it is good.
@@ -165,7 +175,7 @@ coverage. Keep the existing Arabic copy where it is good.
 **Status:** Proposed
 
 **v1.0 sources:** YouTube, TikTok, Facebook, Instagram, Kick, Twitch,
-SoundCloud, Google Drive (public; authorized per ADR-008), direct HTTP, HLS/DASH,
+SoundCloud, Google Drive (link-shared only per ADR-008), direct HTTP, HLS/DASH,
 and the generic yt-dlp host set.
 
 **Later:** Mega, Gofile, image galleries, browser bookmarklet, scheduled jobs.
@@ -196,3 +206,42 @@ content; no DRM/paywall bypass.
 
 **Consequences:** The app is a general-purpose tool, not a piracy service. Support
 can point to this boundary when a source is restricted.
+
+## ADR-015 — Failure isolation and batch summary
+
+**Status:** Accepted
+
+**Decision:**
+- Every item has an independent status. One failure never stops the rest of the
+  batch.
+- Transient errors get up to three automatic retries with backoff; auth,
+  permission, owner-disabled download, DRM, paywall, and unsupported errors are
+  not retried.
+- A failure card shows the item name, the original link, a localized reason, and
+  actions: retry, open in browser, skip, copy link, details.
+- When a batch finishes, show a summary with downloaded/failed/skipped counts,
+  total size, duration, and a list of failed items. Actions: retry failed, copy
+  failed links, open folder, view report.
+- Persist the batch summary in History so it survives a restart.
+- ZIP jobs include only successfully downloaded files; the summary lists every
+  skipped file and reason.
+
+**Consequences:** The queue needs a batch model and per-item error persistence.
+The UI needs a dedicated failure card and summary sheet.
+
+## ADR-016 — ZIP folder downloads
+
+**Status:** Accepted
+
+**Decision:**
+- Support both "Download files individually" and "Download folder as ZIP."
+- A folder link opens a selection screen with both actions; ZIP is not forced.
+- Recursion is on by default with depth and file-count guards.
+- Show file count and total size when available; warn about free space.
+- If some files fail, build the ZIP from successful files and report the
+  failures instead of failing the whole folder.
+- Do not add a ZIP dependency until the implementation choice is approved;
+  prefer a streaming implementation that supports large files.
+
+**Consequences:** Large folders need progress, cancellation, and a free-space
+check. Individual downloads remain the more resumable option.

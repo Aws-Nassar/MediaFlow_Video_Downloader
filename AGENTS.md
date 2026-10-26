@@ -4,15 +4,17 @@
 - Root is **MediaFlow Pro v2.1**, a single-file PyQt5 desktop app (`app.py`). It is the working reference.
 - `MediaFlow_Mobile/` is a Flutter Android app with a Python backend embedded via Chaquopy (`android/app/src/main/python/mediaflow_core.py`).
 - The Flutter app is a regression from the pre-Flutter Java app. Do not assume desktop parity or trust its current behavior.
-- Agreed rebuild direction (not scaffolded yet): one Flutter app, Windows + Android. Specs now live in `specs/001-rebuild/`; proposed app path is `apps/mediaflow/`. Do not move or rewrite `app.py` or `MediaFlow_Mobile/`.
+- Agreed rebuild direction: one Flutter app, Windows + Android. Specs live in `specs/001-rebuild/`; the rebuild app is scaffolded in `apps/mediaflow/`. Do not move or rewrite `app.py` or `MediaFlow_Mobile/`.
 - CI is `.github/workflows/release.yml`, triggered by `v*` tags. The Android leg now builds with Flutter on `MediaFlow_Mobile`; verify it on the next tag.
 
 ## Rebuild direction
 - Product target: local-first multi-source downloader for Windows and Android. Read `specs/001-rebuild/README.md` first, then `product-spec.md`, `source-matrix.md`, `architecture.md`, `design-system.md`, `tasks.md`, and `decisions.md`.
 - UX reference: [anything.rip](https://anything.rip/). Use it only to validate the interaction model; do not copy its code, branding, or assets.
-- v1 sources: YouTube, TikTok, Facebook, Instagram, Kick, Twitch, SoundCloud, Google Drive public/authorized, direct HTTP, HLS/DASH, and generic yt-dlp hosts. Mega/Gofile are later; torrents and DRM services are out.
-- Content boundary: public or user-authorized content only. Never bypass DRM, paywalls, private-account controls, owner-disabled downloads, or Workspace policy. Restricted Google Drive files are terminal errors, not a challenge.
-- Sample URLs supplied for acceptance are private notes only. Do not commit them, downloaded media, cookies, or OAuth secrets. Automated tests use recorded JSON and fake engines.
+- v1 sources: YouTube, TikTok, Facebook, Instagram, Kick, Twitch, SoundCloud, Google Drive link-shared, direct HTTP, HLS/DASH, and generic yt-dlp hosts. Mega/Gofile are later; torrents and DRM services are out.
+- Content boundary: link-shared/public or user-authorized content only. Never bypass DRM, paywalls, private-account controls, owner-disabled downloads, or Workspace policy. A missing Drive download button is not a block; a sign-in-required, owner-disabled, or policy-blocked file is a terminal per-file error.
+- Google Drive is link-shared only: no Google sign-in, OAuth, API key, or account token. Do not add `google_sign_in`, `googleapis`, or OAuth client setup.
+- Batch failures are isolated: show the item name, original link, and localized reason, skip the item, continue the rest, and show an end-of-batch summary with retry-failed.
+- Sample URLs supplied for acceptance are private notes only. Do not commit them, downloaded media, cookies, or account secrets. Automated tests use recorded JSON/HTML and fake engines.
 - Locked stack: Windows `yt-dlp.exe` + `ffmpeg.exe` subprocess; Android `youtubedl-android` + FFmpeg. No new Chaquopy/Python runtime in the rebuild.
 - Design: Studio Dark, one Flutter codebase, English/Arabic with RTL. See `design-system.md`.
 
@@ -48,6 +50,20 @@ APK output: `MediaFlow_Mobile\build\app\outputs\flutter-apk\app-debug.apk`.
 
 The root `MediaFlow_Mobile/` has no `gradlew`; the Android wrapper lives at `android/gradlew`, and those wrapper files are gitignored. Flutter injects them from its cache during `flutter build`. Use `flutter build` from `MediaFlow_Mobile`, not `./gradlew` from the root. `test/` exists and `flutter test` runs 8 tests. `flutter analyze` is clean as of the Phase 0 rescue; keep it clean.
 
+Rebuild app (`apps/mediaflow`):
+```powershell
+cd apps\mediaflow
+flutter pub get
+flutter analyze
+flutter test
+flutter build apk --debug
+# Windows requires a Visual Studio C++ toolchain:
+flutter build windows --debug
+```
+APK output: `apps\mediaflow\build\app\outputs\flutter-apk\app-debug.apk`.
+
+The rebuild is a Phase 2 fake-engine vertical slice: no real downloads, no network, no persistence, and no extra packages beyond Flutter/lints/test. The Windows runner has not been built because this machine has no Visual Studio C++ toolchain; the Android debug APK builds. `MaterialApp.locale` is pinned to English until `flutter_localizations`/ARB is approved; the app strings and `Directionality` still switch to Arabic. Do not claim Windows runtime verification until the toolchain is installed.
+
 ## Mobile contract (Phase 0 rescue)
 - Python emits `percent` in `0..1`; `normalizePercent()` now accepts `0..1` and `0..100` and is covered by tests.
 - Python returns `downloaded_files`; `extractDownloadedFiles()` reads it and falls back to `file_path`.
@@ -66,6 +82,9 @@ The root `MediaFlow_Mobile/` has no `gradlew`; the Android wrapper lives at `and
 - Default PowerShell execution policy blocks `build_debug_apk.ps1`; run it with `-ExecutionPolicy Bypass`.
 - The debug APK is ~188 MB because Chaquopy packages CPython for `arm64-v8a` and `x86_64` plus yt-dlp, and debug Flutter includes the kernel blob and validation layer. Narrow ABIs for release.
 - `.gitignore` ignores `*.exe`, `tools/ffmpeg*.exe`, `dist/`, `build/`, and `.venv/`. `AGENTS.md` itself is not ignored; commit it so the guidance is shared.
+- `apps/mediaflow` uses `com.mediaflow.app`; if you change the Android namespace, keep `android/app/build.gradle.kts`, the `MainActivity.kt` package/path, and the manifest aligned. The scaffold's `MainActivity` lives at `android/app/src/main/kotlin/com/mediaflow/app/MainActivity.kt`.
+- The rebuild Android debug build succeeds; the Windows runner cannot be built on this machine without the Visual Studio C++ toolchain. Do not mark the Windows leg verified until it builds and runs.
+- The rebuild `MaterialApp.locale` is pinned to English because `flutter_localizations` is not added yet. Arabic UI text and `Directionality` work, but Material's own localization strings stay English until ARB/gen-l10n is approved.
 - `.editorconfig` says 4-space indent, but Dart is formatted by `dart format` (2 spaces). Do not hand-indent Dart to 4.
 - Root `README.md` has mojibake and stale details; `MediaFlow_Mobile/README.md` is the default Flutter template. Trust code and config.
 - Desktop state lives outside the repo: `~/.ytflow2_config.json` and `~/.ytflow2_history.json`. Never commit them.
@@ -76,6 +95,7 @@ The root `MediaFlow_Mobile/` has no `gradlew`; the Android wrapper lives at `and
 - Mobile: `YtdlpService` wraps the MethodChannel/EventChannel; `PythonBridge.kt` starts Chaquopy and calls `mediaflow_core.py`. `l10n.dart` is a manual en/ar string map, not ARB/gen-l10n. `lib/services/download_contract.dart` holds the pure progress/result helpers and their tests.
 - Correct pre-Flutter behavior is in git history: `git show 81008d4^:Videos_Downloader_Mobile/app/src/main/java/com/mediaflow/android/MainActivity.java`. It scales `percent*1000`, reads `downloaded_files`, and scans real files for play/share/delete.
 - `hooks/hook_ffmpeg_path.py` puts bundled FFmpeg on PATH at runtime.
+- Rebuild: `apps/mediaflow/lib/state/app_state.dart` owns the in-memory queue, scheduler, retries, and batch summaries. `FakeSourceAdapter` is the only engine for now; it simulates login/permission/owner-disabled failures from URL text. Tests inject zero-delay fakes and never use live URLs. The app uses built-in `ChangeNotifier`/`InheritedNotifier`, not `provider`.
 
 ## Rules
 - Do not rewrite or delete `app.py` during the rebuild; it is the reference. Keep rescue fixes separate from rebuild work.
@@ -83,9 +103,10 @@ The root `MediaFlow_Mobile/` has no `gradlew`; the Android wrapper lives at `and
 - Do not add `MANAGE_EXTERNAL_STORAGE`; plan MediaStore/SAF instead.
 - No live URLs or real downloads in automated tests. Use recorded yt-dlp JSON and a fake executable.
 - Never log cookies, signed URLs, or tokens; never commit `cookies.txt`.
-- Keep user-facing strings localized; for the current app add them to `l10n.dart`; for the rebuild use ARB/gen-l10n.
+- Keep user-facing strings localized; for the rescued app add them to `l10n.dart`; for the rebuild use `AppStrings` until ARB/gen-l10n is approved.
 - Ask before adding a dependency and record accepted/proposed decisions in `specs/001-rebuild/decisions.md`.
-- Never add bypass logic for DRM, paywalls, private accounts, owner-disabled Google Drive downloads, or Workspace policy. Explain the restriction and offer an authorized path.
+- Never add bypass logic for DRM, paywalls, private accounts, owner-disabled Google Drive downloads, or Workspace policy. Explain the restriction and offer an authorized path. For link-shared Drive with no download button, use the public listing/file flow; do not add OAuth.
+- Keep batch failures isolated and summarized. Do not let one failed item stop the rest.
 - Verify with the commands above and report the output. Do not claim a build or fix without running it.
 - PyQt5 is GPL/commercial; check licensing before distributing a Python desktop build.
 
@@ -93,5 +114,6 @@ The root `MediaFlow_Mobile/` has no `gradlew`; the Android wrapper lives at `and
 - `flutter analyze` is clean.
 - `flutter test` passes.
 - `flutter build apk --debug` succeeds if Android code changed. The rescue build produced `build/app/outputs/flutter-apk/app-debug.apk` but has not been installed or run on a device/emulator.
+- Rebuild app: run `flutter analyze`, `flutter test`, and `flutter build apk --debug` from `apps/mediaflow`. A Windows build needs the Visual Studio C++ toolchain; state that it could not be run if it is missing.
 - `python app.py` starts if desktop code changed, or state why it could not be run.
 - Update this file if you discover a new trap.

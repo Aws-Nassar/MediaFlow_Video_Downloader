@@ -1,6 +1,6 @@
 # MediaFlow Rebuild — Spec 001
 
-Status: Draft for review
+Status: Phase 2 fake-engine scaffold implemented
 Last updated: 2026-10-26
 
 ## Why this exists
@@ -28,7 +28,9 @@ proxy or host content.
 | Windows engine | Bundled `yt-dlp.exe` + `ffmpeg.exe` subprocess |
 | Android engine | `youtubedl-android` + FFmpeg; no new Chaquopy/Python runtime |
 | Architecture | Local-first; no backend service; no telemetry by default |
-| Content scope | Public content or content the user is authorized to access |
+| Google Drive | Link-shared files/folders; no Google account, OAuth, or API key |
+| Batch behavior | Continue after an item fails; show a per-item error and an end-of-batch summary |
+| Content scope | Link-shared/public content or content the user is authorized to access |
 | Prohibited | DRM bypass, paywall bypass, unauthorized private content |
 
 ## Documents
@@ -51,15 +53,20 @@ proxy or host content.
   the rebuild.
 - `MediaFlow_Mobile/` is the rescued Android baseline. It uses Chaquopy and will
   be replaced, not extended, by the rebuild.
-- The rebuild will live in a new app directory (proposed: `apps/mediaflow/`) so
-  the references remain runnable.
+- The rebuild lives in `apps/mediaflow/` so the references remain runnable.
+  The app path and `com.mediaflow.app` application ID are used for the scaffold;
+  confirm them before release. The Phase 2 fake-engine vertical slice is built;
+  Android debug APK builds, while the Windows runner still needs a Visual Studio
+  C++ toolchain on this machine.
 
 ## Hard boundaries
 
-- **Google Drive:** public files/folders and files/folders the signed-in user can
-  access are supported. Files where the owner disabled downloads, Workspace
-  policy blocks access, or the user lacks permission are **not** bypassed. The
-  app explains the restriction and offers "open in browser" or "request access."
+- **Google Drive:** link-shared files and folders ("anyone with the link") are
+  supported without a Google account, OAuth, or an API key. A missing download
+  button is a UI limitation, not a block; the app reads the shared listing and
+  requests files directly. If an item truly requires sign-in, the owner disabled
+  downloads, or Workspace policy blocks it, that item is a terminal error. It is
+  skipped and reported; it is **not** bypassed.
 - **Social sites:** cookies or a signed-in session may be used for content the
   user can already view. The app does not defeat age gates, region locks,
   private-account controls, or DRM.
@@ -72,8 +79,11 @@ proxy or host content.
 
 ## Review checklist
 
-- [ ] Confirm the v1 source list and the Drive OAuth timing.
-- [ ] Confirm the new app directory and application ID.
-- [ ] Approve proposed dependencies before they are added.
-- [ ] Confirm Android `minSdk` and storage behavior.
+- [x] Confirm the v1 source list and that Google Drive is link-shared only, with
+  no OAuth.
+- [x] Use `apps/mediaflow/` and `com.mediaflow.app` for the scaffold; confirm
+  before release.
+- [ ] Approve proposed dependencies before they are added. Phase 2 added none.
+- [ ] Confirm Android `minSdk` (scaffold uses 24) and storage behavior.
+- [ ] Confirm ZIP default, recursion, and skip-versus-stop behavior.
 - [ ] Confirm whether Mega/Gofile/torrents are wanted later.

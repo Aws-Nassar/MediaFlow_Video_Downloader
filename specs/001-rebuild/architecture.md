@@ -12,16 +12,17 @@ flowchart LR
   Registry --> HTTP[Direct HTTP adapter]
   YT --> Win[Windows: yt-dlp.exe + ffmpeg.exe]
   YT --> And[Android: youtubedl-android + FFmpeg]
-  Drive --> Google[Google Drive API]
+  Drive --> Google[Link-shared Drive endpoints]
   HTTP --> Net[(Remote host)]
   App --> DB[(SQLite queue + library)]
-  App --> Secrets[(Secure storage)]
+  App --> Local[(App support: cookies, logs)]
   App --> Files[(User output folder)]
 ```
 
 One Flutter codebase. Native work is limited to the Android engine bridge,
-foreground service, storage integration, and Google Sign-In. Windows runs the
-engine as a subprocess from Dart.
+foreground service, and storage integration. Windows runs the engine as a
+subprocess from Dart. Google Drive uses link-shared public endpoints only; there
+is no Google sign-in, OAuth, or API key in the rebuild.
 
 ## 2. Layers
 
@@ -32,7 +33,7 @@ lib/
     analyze/           URL intake, probe, format selection
     queue/             active/waiting jobs
     library/           history and files
-    settings/          preferences, auth, diagnostics
+    settings/          preferences, cookies, diagnostics
     sources/           source catalog / supported hosts
   domain/
     models/            MediaDescriptor, DownloadJob, DownloadEvent, errors
@@ -41,10 +42,10 @@ lib/
     storage/           repositories (interfaces)
   infrastructure/
     engine/            YtDlpBridge, WindowsYtDlpEngine, AndroidYtDlpEngine
-    drive/             Drive API client, OAuth
+    drive/             link-shared listing, file download, ZIP
     http/              DirectHttpEngine
     db/                SQLite implementation
-    auth/              cookie import, secure token store
+    auth/              cookie import (no Google OAuth)
     platform/          share, notifications, file open, storage
 ```
 
@@ -186,30 +187,44 @@ vertical slice is accepted. Do not add a second Python runtime.
 
 HLS/DASH goes to yt-dlp, not the direct engine.
 
-## 5. Google Drive adapter
+## 5. Google Drive adapter (link-shared only)
 
-### Public access
+### File
 - Parse file/folder IDs from `/file/d/<id>`, `/open?id=`, `/uc?id=`, and
   `/drive/folders/<id>`.
-- File: `GET /drive/v3/files/{id}?alt=media&key=…` or the public confirm-token
-  flow for large files.
-- Folder: `files.list` with `q="<id>" in parents and trashed=false`, paginated.
-- Recurse with a depth limit and cycle detection.
+- Download via the public `uc?export=download` flow. For large files, parse the
+  confirmation page/form token and retry with it.
+- Use `Content-Disposition` for the filename and `Content-Length` for size.
+- No API key, OAuth, or Google account.
 
-### Authorized access
-- Desktop: OAuth 2.0 Authorization Code + PKCE, system browser, loopback
-  redirect on `127.0.0.1`.
-- Android: Google Sign-In / Credential Manager, then Drive API calls.
-- Scope: `drive.readonly`.
-- Refresh token in `flutter_secure_storage`; access token kept in memory.
-- The user can disconnect the account at any time.
+### Folder
+- Read the link-shared folder listing from the public `embeddedfolderview` view
+  (or equivalent public HTML). A missing download button is not a block.
+- Parse entries into `DriveEntry(id, name, isFolder, mimeType, size?)`.
+- Recurse into subfolders with a depth limit (10), item limit (10,000), and cycle
+  detection.
+- Probe returns a collection descriptor with item count and, when available,
+  total size.
+- The selection screen offers "Download all" and "Download as ZIP."
+- ZIP is built from successful files only; skipped files are reported in the
+  batch summary.
+
+### ZIP
+- Prefer a streaming ZIP implementation that supports large files and ZIP64.
+- Show file count, total size, and free-space warning before starting.
+- Progress reports both the current file and the overall archive.
+- Cancellation removes the partial ZIP.
+- A folder with failures still produces a ZIP of the successful files, plus a
+  summary (and optionally a `failures.txt` manifest).
 
 ### Errors
-- `permissionDenied` — not shared with this account.
+- `permissionDenied` — the link requires sign-in. Terminal; offer browser.
 - `downloadRestricted` — owner disabled download/copy. Terminal.
 - `policyBlocked` — Workspace/admin policy. Terminal.
-- `quotaExceeded` — retry later; signing in may help.
+- `quotaExceeded` — retry later; no endpoint tricks.
 - `notFound` — removed or wrong ID.
+- `driveLayoutChanged` — public folder HTML no longer parses. Clear error; no
+  silent partial result.
 
 The adapter must never attempt alternate endpoints to defeat a restriction. It
 may retry transient 429/5xx with backoff.
@@ -225,33 +240,60 @@ States:
 ```
 queued -> probing -> downloading -> processing -> completed
    |         |            |             |
-   +---------+------------+-------------+-> failed / cancelled
+   +---------+------------+-------------+-> failed / skipped / cancelled
 ```
 
 - Global concurrency: default 2 (Windows), 1 (Android).
 - Per-host concurrency: default 1 for TikTok/Instagram/Facebook; 2 for
   YouTube/Drive; configurable.
 - Retry: transient network/5xx/429 only, 3 attempts with exponential backoff and
-  `Retry-After` support. Never retry auth, permission, DRM, or paywall errors.
+  `Retry-After` support. Never retry auth, permission, owner-disabled, DRM,
+  paywall, or unsupported errors.
 - Queue state is persisted before each transition.
 - On startup, jobs in `downloading`/`processing` become `interrupted` and offer
   resume/retry.
 - "Pause queue" stops starting new jobs; active jobs keep running. True
   pause/resume is a later feature where the engine supports it.
 
+Failure isolation:
+- Every job owns its status and error. A failure never changes the status of
+  sibling jobs.
+- The failure card shows the title/fallback name, original link, localized
+  reason, and actions. Raw engine output is behind "Details" and redacted.
+- The batch is done when every job reaches `completed`, `failed`, `skipped`, or
+  `cancelled`.
+- A batch summary is computed and persisted: total, completed, failed, skipped,
+  size, elapsed time, and the failed list.
+- "Retry failed" enqueues only failed jobs as a new attempt within the same
+  batch.
+
 Collection expansion:
 - Probe returns collection metadata and a paginated item list.
 - Items are persisted so selection and per-item status survive restarts.
 - The scheduler treats each selected item as a job, grouped by `batchId`.
+- A Drive folder can be expanded into individual jobs or a ZIP job that owns the
+  successful downloads.
 
 ## 7. Persistence
 
 Use SQLite (decision: `drift` preferred, `sqflite` + FFI acceptable). Schema:
 
 ```sql
+batches(
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL,
+  total_count INTEGER NOT NULL DEFAULT 0,
+  completed_count INTEGER NOT NULL DEFAULT 0,
+  failed_count INTEGER NOT NULL DEFAULT 0,
+  skipped_count INTEGER NOT NULL DEFAULT 0,
+  total_bytes INTEGER,
+  created_at INTEGER NOT NULL,
+  finished_at INTEGER
+);
+
 jobs(
   id TEXT PRIMARY KEY,
-  batch_id TEXT,
+  batch_id TEXT REFERENCES batches(id) ON DELETE CASCADE,
   source_id TEXT NOT NULL,
   url TEXT NOT NULL,
   canonical_url TEXT,
@@ -299,17 +341,18 @@ collection_items(
 
 source_auth(
   source_id TEXT PRIMARY KEY,
-  method TEXT NOT NULL,      -- cookies_file | browser | oauth
+  method TEXT NOT NULL,      -- cookies_file | browser
   cookie_path TEXT,          -- path only, never contents
   browser TEXT,
-  account_label TEXT,
   updated_at INTEGER NOT NULL
 );
 ```
 
-`settings` stays in `shared_preferences` except secrets, which go to secure
+`settings` stays in `shared_preferences`; cookie files live in app support
 storage. History is the completed subset of `jobs` joined with `job_files`.
-Indexes on `status`, `created_at`, `batch_id`, and `source_id`.
+Batch summaries are the `batches` rows joined with failed jobs. Indexes on
+`jobs.status`, `jobs.created_at`, `jobs.batch_id`, `jobs.source_id`, and
+`batches.created_at`.
 
 Data migration:
 - Optional one-time import of `~/.ytflow2_config.json` and
@@ -357,6 +400,8 @@ enum MediaFlowErrorCode {
   quotaExceeded,
   notFound,
   liveUnavailable,
+  driveLayoutChanged,
+  zipFailed,
   diskFull,
   network,
   engineMissing,
@@ -367,16 +412,18 @@ enum MediaFlowErrorCode {
 ```
 
 Each error has `retryable`, a localized message key, and actions. Actions are
-typed (`addCookies`, `signIn`, `openInBrowser`, `changeFolder`, `retry`,
-`remove`). The UI never invents advice from raw stderr.
+typed (`addCookies`, `openInBrowser`, `changeFolder`, `copyLink`, `retry`,
+`skip`, `remove`). The UI never invents advice from raw stderr. Failure cards
+show the original link, not a signed media URL.
 
 ## 10. Security and privacy
 
 - No telemetry/analytics by default.
 - Redact cookies, `Authorization`, signed query parameters, and tokens from logs.
 - Cookie files live in app support storage, never in the repo, never in history.
-- OAuth refresh tokens in secure storage; access tokens in memory.
-- OAuth uses PKCE and `state`; loopback binds to `127.0.0.1` on a random port.
+- No Google credentials, OAuth client IDs, or Drive tokens are collected.
+- Drive links are treated as capability URLs: do not log the raw URL in
+  diagnostics; redact query parameters.
 - Engine updates use HTTPS and checksum/signature verification where available.
 - Reject `file:`, `javascript:`, and malformed URLs. Only `http(s)` is
   downloadable.
@@ -387,13 +434,14 @@ typed (`addCookies`, `signIn`, `openInBrowser`, `changeFolder`, `retry`,
 ## 11. Testing
 
 - **Unit:** source resolution, URL canonicalization, progress normalization,
-  filename sanitizer, error classifier, scheduler/retry, collection paging.
+  filename sanitizer, error classifier, scheduler/retry, collection paging,
+  Drive HTML parsing, ZIP inclusion rules, batch summary counts.
 - **Contract:** engine event schema, adapter capabilities, Drive path mapping.
 - **Widget/golden:** Studio Dark, Light, OLED; Arabic RTL; 360dp phone and
-  1280dp desktop.
-- **Integration:** fake engine for Analyze → Queue → Library; fake Drive HTTP
-  server with recorded JSON; no live URLs.
-- **Manual:** `product-spec.md` S-01…S-20, on Windows and Android, with public
+  1280dp desktop; failure card; batch summary.
+- **Integration:** fake engine for Analyze → Queue → Library; a mixed batch with
+  failures; fake Drive HTML server with recorded responses; no live URLs.
+- **Manual:** `product-spec.md` S-01…S-23, on Windows and Android, with public
   content.
 - **Performance:** 10k library rows, 100-item collection, resume after kill.
 
@@ -404,7 +452,8 @@ typed (`addCookies`, `signIn`, `openInBrowser`, `changeFolder`, `retry`,
 - Tagged release builds: Windows installer plus Android APK/AAB.
 - Android ABI splits for release; no debug kernel blob in release.
 - Bundle `yt-dlp.exe`/`ffmpeg.exe` on Windows; pin the Android engine.
-- Secrets: signing keys and OAuth client IDs only in CI/local secure storage.
+- Secrets: signing keys only in CI/local secure storage. No Google OAuth client
+  IDs are needed.
 - Do not add live URLs to CI.
 
 ## 13. Dependency gates
@@ -414,14 +463,13 @@ These are proposed and require approval before being added:
 | Dependency | Purpose | Platform | Alternative |
 |---|---|---|---|
 | `drift` + `sqlite3_flutter_libs` | typed DB/migrations | both | `sqflite` + FFI |
-| `dio` | HTTP with cancel/progress | both | `http` + custom |
-| `flutter_secure_storage` | OAuth refresh token | both | platform keystore code |
-| `google_sign_in` + `googleapis` | Drive OAuth | both | custom OAuth |
+| `dio` | HTTP with cancel/progress | both | Dart `HttpClient` |
+| `archive` or native ZIP | folder ZIP | both | native ZIP per platform |
 | `desktop_drop` | drag/drop URLs | Windows | manual paste |
 | `window_manager` | min size/title bar | Windows | default runner |
 | `url_launcher` | open in browser | both | platform channel |
 | `shared_preferences` | non-secret settings | both | existing |
-| `provider` | state management | both | `riverpod` |
+| `provider` | optional state management | both | built-in `ChangeNotifier` |
 | `youtubedl-android` | Android engine | Android | none (locked) |
 
 Already present in the rescue app and likely reused: `path_provider`,
@@ -430,9 +478,9 @@ Already present in the rescue app and likely reused: `path_provider`,
 ## 14. Migration from the current apps
 
 - Keep `app.py` and `MediaFlow_Mobile/` runnable.
-- New app in `apps/mediaflow/` (proposed).
-- Reuse the Studio Dark palette and Arabic strings, but move strings to ARB and
-  `gen-l10n`.
+- New app lives in `apps/mediaflow/`; the Phase 2 scaffold is in progress.
+- Reuse the Studio Dark palette and Arabic strings; the scaffold uses a temporary
+  `AppStrings` map, then moves to ARB and `gen-l10n`.
 - Do not carry over the Linux FFmpeg asset, Chaquopy runtime, dead services, or
   `MANAGE_EXTERNAL_STORAGE`.
 - Import desktop config/history once, with a backup and a clear "imported" state.
