@@ -72,7 +72,60 @@ flutter build windows --debug
 ```
 
 It is not available in the current environment, so the Windows runner has not
-been built yet.
+been built locally. GitHub Actions runs the same build on `windows-latest`.
+
+## Release builds
+
+`.github/workflows/release.yml` builds the rebuild app on `v*` tags and attaches:
+
+- `MediaFlow-Android-<version>.apk`
+- `MediaFlow-Setup-<version>.exe`
+- `MediaFlow-Windows-<version>.zip`
+- `SHA256SUMS.txt`
+
+A manual `workflow_dispatch` run builds the same artifacts without creating a
+release. The first rebuild tag should be `v0.1.0`; tagged releases are marked as
+prereleases until the Windows and Android smoke tests pass.
+
+The Windows bundle includes `yt-dlp.exe`, `ffmpeg.exe`, and `ffprobe.exe` under
+`tools/`, next to `mediaflow.exe`. The portable ZIP is the Flutter release
+folder; the installer is built from `windows/installer.iss`.
+
+Android release builds require these GitHub secrets:
+
+```text
+ANDROID_KEYSTORE_BASE64
+ANDROID_KEYSTORE_PASSWORD
+ANDROID_KEY_ALIAS
+ANDROID_KEY_PASSWORD
+```
+
+The workflow decodes the base64 keystore into the runner temp folder and sets
+`MEDIAFLOW_REQUIRE_RELEASE_SIGNING=true`, so a missing secret fails the build
+instead of producing a debug-signed APK. Local release builds without a
+keystore fall back to the debug key for development only.
+
+Create the keystore once and back it up; losing it prevents future APK updates:
+
+```powershell
+keytool -genkeypair -v `
+  -keystore C:\path\to\mediaflow-release.jks `
+  -alias mediaflow `
+  -keyalg RSA -keysize 2048 -validity 10000
+```
+
+If `keytool` is not on PATH, use the JDK bundled with Android Studio, for
+example `C:\Program Files\Android\Android Studio\jbr\bin\keytool.exe`. Keep the
+keystore outside the repository and encode it for the secret with PowerShell:
+
+```powershell
+[Convert]::ToBase64String(
+  [IO.File]::ReadAllBytes("C:\path\to\mediaflow-release.jks")
+) | Set-Clipboard
+```
+
+The old PyQt5, Linux, and rescue Android builds are in
+`.github/workflows/legacy-release.yml`, which is manual-only.
 
 ## Demo behavior
 

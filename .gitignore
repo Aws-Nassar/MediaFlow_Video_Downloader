@@ -40,6 +40,12 @@ history.json
 cookies.txt
 *.cookies.txt
 
+# Android release signing — never commit the keystore or passwords
+apps/mediaflow/android/key.properties
+apps/mediaflow/android/*.jks
+apps/mediaflow/android/*.keystore
+apps/mediaflow/android/*.p12
+
 # Editor and OS files
 .vscode/
 .idea/

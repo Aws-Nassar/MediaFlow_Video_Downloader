@@ -348,3 +348,38 @@ the library's parent-process kill; child-process cleanup is not verified. The
 current bridge uses one method channel in both directions; an EventChannel is
 not required for this slice.
 
+
+## ADR-019 - Rebuild release packaging and signing
+
+**Status:** Accepted (2026-10-27)
+
+**Context:** The rebuild is a Flutter app for Windows and Android. A raw Flutter
+Windows build is a directory (`mediaflow.exe` plus DLLs and `data/`), not a
+single runnable executable. The Android release APK needs a stable signing
+identity. The old PyQt5, Linux, and rescue Android release jobs must not conflict
+with new tags.
+
+**Decision:**
+- One `vMAJOR.MINOR.PATCH` tag drives `.github/workflows/release.yml`. Manual
+  `workflow_dispatch` builds artifacts without publishing.
+- Publish `MediaFlow-Android-<version>.apk`,
+  `MediaFlow-Setup-<version>.exe`, `MediaFlow-Windows-<version>.zip`, and
+  `SHA256SUMS.txt`. The first tagged release is a prerelease.
+- Build the Windows installer with Inno Setup. The installer and portable ZIP
+  both contain `tools/yt-dlp.exe`, `tools/ffmpeg.exe`, and `tools/ffprobe.exe`.
+- Sign Android releases with a real keystore from
+  `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
+  `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`. The CI build sets
+  `MEDIAFLOW_REQUIRE_RELEASE_SIGNING=true` and fails if signing is absent. Local
+  release builds may fall back to the debug key for development only.
+- Keep the old PyQt5, Linux, and rescue builds in manual-only
+  `.github/workflows/legacy-release.yml`.
+- Keep `THIRD_PARTY_NOTICES.md` with Windows packages and link the source in the
+  release body.
+
+**Consequences:** Release tags no longer attach the old app or Linux binary.
+Windows users get an installer or portable folder with the engine binaries.
+Android releases use a durable signing identity rather than the debug key, so
+the keystore must be backed up. The Windows build and both runtime smoke tests
+still need to pass in GitHub Actions/on a device before the prerelease is
+promoted.

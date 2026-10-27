@@ -1,55 +1,56 @@
-name: Build and Release
+name: Build and Release Rebuild
 
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rebuild-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: '3.44.0'
+  ANDROID_NDK_VERSION: '28.2.13676358'
+  YTDLP_VERSION: '2026.10.26'
+  FFMPEG_BUILD: 'ffmpeg-n8.1-latest-win64-gpl-8.1'
 
 jobs:
-  build-exe:
-    name: Build Windows .exe
-    runs-on: windows-latest
+  prepare:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build_number: ${{ steps.version.outputs.build_number }}
+    steps:
+      - name: Resolve version from tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="0.1.0"
+          fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tags must be vMAJOR.MINOR.PATCH (got ${GITHUB_REF_NAME})."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build_number=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+  build-android:
+    name: Build Android APK
+    needs: prepare
+    runs-on: ubuntu-latest
     defaults:
       run:
-        shell: pwsh
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Download FFmpeg
-        shell: pwsh
-        run: |
-          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
-          $zip = "$env:TEMP\ffmpeg.zip"
-          Invoke-WebRequest -Uri $url -OutFile $zip
-          & 7z x $zip -o"$env:TEMP\ffmpeg" -y | Out-Null
-          Copy-Item "$env:TEMP\ffmpeg\ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe" tools\ffmpeg.exe
-          Copy-Item "$env:TEMP\ffmpeg\ffmpeg-master-latest-win64-gpl\bin\ffprobe.exe" tools\ffprobe.exe
-          Copy-Item "$env:TEMP\ffmpeg\ffmpeg-master-latest-win64-gpl\bin\ffplay.exe" tools\ffplay.exe
-
-      - name: Install UPX (compressor)
-        shell: pwsh
-        run: choco install upx --no-progress -y
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-
-      - name: Build with PyInstaller
-        run: pyinstaller MediaFlow.spec
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: MediaFlow-Windows
-          path: dist/MediaFlow.exe
-
-  build-apk:
-    name: Build Android .apk
-    runs-on: ubuntu-latest
+        working-directory: apps/mediaflow
     steps:
       - uses: actions/checkout@v4
 
@@ -63,96 +64,255 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: '3.44.0'
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
-      - name: Set up Android SDK & NDK
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
           accept-licenses: true
 
-      - name: Install NDK
-        run: sdkmanager "ndk;27.0.12077973" --sdk_root=$ANDROID_SDK_ROOT
-
-      - name: Set up Python 3.14
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.14'
-          allow-prereleases: true
-
-      - name: Resolve Python path for Chaquopy
-        id: python-path
+      - name: Install Android SDK components
         run: |
-          PYTHON=$(which python)
-          echo "path=$PYTHON" >> $GITHUB_OUTPUT
-          echo "Found Python at: $PYTHON"
-          python --version
+          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;${ANDROID_NDK_VERSION}"
 
-      - name: Get Flutter dependencies
-        working-directory: MediaFlow_Mobile
+      - name: Get dependencies
         run: flutter pub get
 
       - name: Analyze and test
-        working-directory: MediaFlow_Mobile
         run: |
           flutter analyze
           flutter test
 
-      - name: Build debug APK
-        working-directory: MediaFlow_Mobile
-        run: flutter build apk --debug
+      - name: Decode release keystore
         env:
-          CHAQUOPY_BUILD_PYTHON: ${{ steps.python-path.outputs.path }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${ANDROID_KEYSTORE_BASE64}" || \
+                -z "${ANDROID_KEYSTORE_PASSWORD}" || \
+                -z "${ANDROID_KEY_ALIAS}" || \
+                -z "${ANDROID_KEY_PASSWORD}" ]]; then
+            echo "::error::Android release signing secrets are not configured."
+            echo "::error::Set ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD."
+            exit 1
+          fi
+          keystore_path="${RUNNER_TEMP}/mediaflow-release.jks"
+          printf '%s' "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "$keystore_path"
+          echo "ANDROID_KEYSTORE_FILE=$keystore_path" >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          MEDIAFLOW_REQUIRE_RELEASE_SIGNING: 'true'
+        run: |
+          flutter build apk --release \
+            --build-name="${{ needs.prepare.outputs.version }}" \
+            --build-number="${{ needs.prepare.outputs.build_number }}"
+
+      - name: Verify APK signature
+        run: |
+          set -euo pipefail
+          apk="build/app/outputs/flutter-apk/app-release.apk"
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          apksigner=$(find "${sdk_root}/build-tools" -name apksigner -type f | sort -V | tail -n 1)
+          if [[ -z "$apksigner" ]]; then
+            echo "::error::apksigner was not found in the Android SDK."
+            exit 1
+          fi
+          "$apksigner" verify --print-certs "$apk"
+
+      - name: Stage APK
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk \
+            "dist/MediaFlow-Android-${{ needs.prepare.outputs.version }}.apk"
+          ls -lh dist
 
       - uses: actions/upload-artifact@v4
         with:
-          name: MediaFlow-Android
-          path: MediaFlow_Mobile/build/app/outputs/flutter-apk/app-debug.apk
+          name: mediaflow-android
+          path: apps/mediaflow/dist/MediaFlow-Android-*.apk
+          if-no-files-found: error
 
-  build-linux:
-    name: Build Linux binary
-    runs-on: ubuntu-latest
+  build-windows:
+    name: Build Windows package
+    needs: prepare
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: apps/mediaflow
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
         with:
-          python-version: '3.12'
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
 
-      - name: Install system dependencies
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Analyze and test
         run: |
-          sudo apt-get update
-          sudo apt-get install -y upx ffmpeg libegl1
+          flutter analyze
+          flutter test
 
-      - name: Install Python dependencies
+      - name: Build Windows release
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
+          flutter build windows --release --build-name="${{ needs.prepare.outputs.version }}" --build-number="${{ needs.prepare.outputs.build_number }}"
 
-      - name: Build with PyInstaller
-        run: python -m PyInstaller MediaFlow.spec
+      - name: Locate Windows release bundle
+        run: |
+          $ErrorActionPreference = "Stop"
+          $exe = Get-ChildItem -Path "build\windows" -Recurse -Filter "mediaflow.exe" |
+            Where-Object { $_.FullName -match '\\runner\\Release\\mediaflow\.exe$' } |
+            Select-Object -First 1
+          if (-not $exe) {
+            throw "The Flutter Windows release executable was not found."
+          }
+          "RELEASE_DIR=$($exe.Directory.FullName)" >> $env:GITHUB_ENV
+          Write-Host "Windows bundle: $($exe.Directory.FullName)"
+
+      - name: Bundle yt-dlp and FFmpeg
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ProgressPreference = "SilentlyContinue"
+          $toolsDir = Join-Path $env:RELEASE_DIR "tools"
+          New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null
+
+          $ytDlpUrl = "https://github.com/yt-dlp/yt-dlp/releases/download/$env:YTDLP_VERSION/yt-dlp.exe"
+          Invoke-WebRequest -Uri $ytDlpUrl -OutFile (Join-Path $toolsDir "yt-dlp.exe")
+
+          $ffmpegZip = Join-Path $env:RUNNER_TEMP "ffmpeg.zip"
+          $ffmpegDir = Join-Path $env:RUNNER_TEMP "ffmpeg"
+          Invoke-WebRequest `
+            -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/$env:FFMPEG_BUILD.zip" `
+            -OutFile $ffmpegZip
+          if (Test-Path $ffmpegDir) {
+            Remove-Item -Recurse -Force $ffmpegDir
+          }
+          & 7z x $ffmpegZip "-o$ffmpegDir" -y | Out-Null
+          $ffmpegBin = Join-Path $ffmpegDir "$env:FFMPEG_BUILD\bin"
+          Copy-Item (Join-Path $ffmpegBin "ffmpeg.exe") $toolsDir
+          Copy-Item (Join-Path $ffmpegBin "ffprobe.exe") $toolsDir
+
+          Copy-Item "..\..\THIRD_PARTY_NOTICES.md" (Join-Path $env:RELEASE_DIR "THIRD_PARTY_NOTICES.md")
+          Copy-Item "windows\README-Windows.txt" (Join-Path $env:RELEASE_DIR "README-Windows.txt")
+
+          & (Join-Path $toolsDir "yt-dlp.exe") --version
+          & (Join-Path $toolsDir "ffmpeg.exe") -version | Select-Object -First 1
+
+      - name: Create portable ZIP
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path "dist" | Out-Null
+          Copy-Item "..\..\THIRD_PARTY_NOTICES.md" "dist\THIRD_PARTY_NOTICES.md"
+          $zip = Join-Path (Resolve-Path "dist") "MediaFlow-Windows-${{ needs.prepare.outputs.version }}.zip"
+          Compress-Archive -Path (Join-Path $env:RELEASE_DIR "*") -DestinationPath $zip -CompressionLevel Optimal
+          Get-Item $zip | Format-List FullName, Length
+
+      - name: Build Windows installer
+        run: |
+          $ErrorActionPreference = "Stop"
+          choco install innosetup --no-progress -y
+          $isccPaths = @(
+            "${env:ProgramFiles(x86)}\Inno Setup*\ISCC.exe",
+            "${env:ProgramFiles}\Inno Setup*\ISCC.exe"
+          )
+          $iscc = Get-ChildItem -Path $isccPaths -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $iscc) {
+            throw "Inno Setup compiler was not found."
+          }
+          $dist = (Resolve-Path "dist").Path
+          & $iscc.FullName `
+            "/DMyAppVersion=${{ needs.prepare.outputs.version }}" `
+            "/DSourceDir=$env:RELEASE_DIR" `
+            "/DOutputDir=$dist" `
+            "windows\installer.iss"
+          Get-ChildItem "dist" | Format-Table Name, Length
+
+      - name: Verify Windows artifacts
+        run: |
+          $ErrorActionPreference = "Stop"
+          $setup = "dist\MediaFlow-Setup-${{ needs.prepare.outputs.version }}.exe"
+          $zip = "dist\MediaFlow-Windows-${{ needs.prepare.outputs.version }}.zip"
+          if (-not (Test-Path $setup)) { throw "Missing $setup" }
+          if (-not (Test-Path $zip)) { throw "Missing $zip" }
+          if (-not (Test-Path (Join-Path $env:RELEASE_DIR "tools\yt-dlp.exe"))) {
+            throw "yt-dlp.exe is missing from the Windows bundle."
+          }
+          if (-not (Test-Path (Join-Path $env:RELEASE_DIR "tools\ffmpeg.exe"))) {
+            throw "ffmpeg.exe is missing from the Windows bundle."
+          }
 
       - uses: actions/upload-artifact@v4
         with:
-          name: MediaFlow-Linux
-          path: dist/MediaFlow
+          name: mediaflow-windows
+          path: |
+            apps/mediaflow/dist/MediaFlow-Setup-*.exe
+            apps/mediaflow/dist/MediaFlow-Windows-*.zip
+            apps/mediaflow/dist/THIRD_PARTY_NOTICES.md
+          if-no-files-found: error
 
-  create-release:
-    name: Create GitHub Release
-    needs: [build-exe, build-apk, build-linux]
+  publish:
+    name: Publish GitHub prerelease
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [prepare, build-android, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
 
-      - name: Display structure
-        run: ls -R
+      - name: Generate checksums
+        run: |
+          set -euo pipefail
+          cd release-assets
+          find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\0' |
+            sort -z |
+            xargs -0 sha256sum > SHA256SUMS.txt
+          cat SHA256SUMS.txt
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: |
-            MediaFlow-Windows/MediaFlow.exe
-            MediaFlow-Linux/MediaFlow
-            MediaFlow-Android/app-debug.apk
+          name: MediaFlow ${{ needs.prepare.outputs.version }}
+          prerelease: true
           generate_release_notes: true
+          files: release-assets/*
+          body: |
+            MediaFlow ${{ needs.prepare.outputs.version }} is a prerelease build of the Flutter rebuild.
+
+            **Windows**
+            Download `MediaFlow-Setup-${{ needs.prepare.outputs.version }}.exe` for the installer, or `MediaFlow-Windows-${{ needs.prepare.outputs.version }}.zip` for the portable build. Keep `mediaflow.exe`, `data\`, and `tools\` together. The package includes yt-dlp and FFmpeg.
+
+            **Android**
+            Download `MediaFlow-Android-${{ needs.prepare.outputs.version }}.apk` and install it on Android 7.0 or newer. You may need to allow installation from the browser or file manager you use.
+
+            **Known limitations**
+            - Windows and Android runtime acceptance is still pending.
+            - Android downloads may stop when the app is backgrounded; the foreground service is not implemented yet.
+            - The Windows installer is unsigned, so SmartScreen may warn.
+            - This is a test prerelease; the GPL distribution licensing review is still pending.
+            - This build does not bypass DRM, paywalls, private-account controls, or owner-disabled sharing.
+
+            The Android package includes `youtubedl-android` (GPL-3.0) and an FFmpeg GPL build. The Windows package includes yt-dlp and an FFmpeg GPL build. See `THIRD_PARTY_NOTICES.md` in the Windows bundle. Source code: ${{ github.server_url }}/${{ github.repository }}/tree/${{ github.ref_name }}

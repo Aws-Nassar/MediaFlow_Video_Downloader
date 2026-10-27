@@ -16,7 +16,7 @@
 | **History** | Download history with search and re-download shortcuts |
 | **Cookies** | Support for cookies.txt or browser-cookie extraction |
 | **Portable** | FFmpeg bundled inside the Windows executable — no separate install for end users |
-| **Platforms** | Windows (.exe), Linux (ELF), Android (.apk) — built automatically via CI on every release tag |
+| **Platforms** | Windows (.exe), Linux (ELF), Android (.apk). Legacy CI builds are manual; the rebuild app has its own tagged releases. |
 
 ## Project Structure
 
@@ -124,15 +124,17 @@ Output: `dist/MediaFlow` (ELF binary, no extension)
 
 ## Releases
 
-When a tag matching `v*` is pushed to GitHub, the CI workflow (`.github/workflows/release.yml`) builds and publishes three artifacts:
+The legacy PyQt5 app, Linux binary, and rescue Android app are built by the manual-only workflow `.github/workflows/legacy-release.yml`.
 
-| Artifact | Platform | Runner |
-|----------|----------|--------|
-| `MediaFlow-Windows/MediaFlow.exe` | Windows 10+ | `windows-latest` |
-| `MediaFlow-Linux/MediaFlow` | Linux (x86-64) | `ubuntu-latest` |
-| `MediaFlow-Android/app-debug.apk` | Android (7+) | `ubuntu-latest` (Chaquopy + Gradle) |
+The rebuild app has its own release workflow. A tag matching `v*` builds and attaches:
 
-All three are attached to the GitHub Release automatically.
+| Artifact | Platform |
+|----------|----------|
+| `MediaFlow-Setup-<version>.exe` | Windows 10/11 x64 |
+| `MediaFlow-Windows-<version>.zip` | Windows portable |
+| `MediaFlow-Android-<version>.apk` | Android 7+ |
+
+The first rebuild tag is published as a prerelease.
 
 ## Downloading From Other Sources
 

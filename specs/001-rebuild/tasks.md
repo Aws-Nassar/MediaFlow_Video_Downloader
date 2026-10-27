@@ -260,14 +260,20 @@ Suggested commit: `feat(ui): complete library, settings, and Studio Dark polish`
 
 Entry: v1 acceptance checklist passes.
 
-- [ ] Windows installer with bundled engine binaries.
-- [ ] Android release build with ABI splits and signing.
-- [ ] CI builds Windows and Android, runs analyze/tests.
+Status: release automation and the Windows installer are implemented. The first
+tagged run and the Windows/Android smoke tests are still pending. Android release
+signing uses a real keystore from GitHub secrets; ABI splits and the first-run
+legal copy remain open.
+
+- [x] Windows installer with bundled engine binaries.
+- [x] Android release signing from CI secrets.
+- [ ] Android ABI splits.
+- [x] CI builds Windows and Android, runs analyze/tests.
 - [ ] Performance pass: startup, 10k library rows, 100-item folder.
 - [ ] Security review: path traversal, secret logging, Drive capability-URL
   redaction, no Google credentials.
 - [ ] Legal/privacy notice and first-run copy.
-- [ ] Update README/AGENTS with the new app and release steps.
+- [x] Update README/AGENTS with the new app and release steps.
 - [ ] Device/emulator smoke test on Android; Windows 10/11 smoke test.
 
 Acceptance:

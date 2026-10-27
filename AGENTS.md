@@ -5,7 +5,7 @@
 - `MediaFlow_Mobile/` is a Flutter Android app with a Python backend embedded via Chaquopy (`android/app/src/main/python/mediaflow_core.py`).
 - The Flutter app is a regression from the pre-Flutter Java app. Do not assume desktop parity or trust its current behavior.
 - Agreed rebuild direction: one Flutter app, Windows + Android. Specs live in `specs/001-rebuild/`; the rebuild app is scaffolded in `apps/mediaflow/`. Do not move or rewrite `app.py` or `MediaFlow_Mobile/`.
-- CI is `.github/workflows/release.yml`, triggered by `v*` tags. The Android leg now builds with Flutter on `MediaFlow_Mobile`; verify it on the next tag.
+- CI: `.github/workflows/release.yml` is the rebuild release workflow on `v*` tags and builds `apps/mediaflow` for Android and Windows. `.github/workflows/legacy-release.yml` is manual-only and preserves the old PyQt5, Linux, and rescue Android builds.
 
 ## Rebuild direction
 - Product target: local-first multi-source downloader for Windows and Android. Read `specs/001-rebuild/README.md` first, then `product-spec.md`, `source-matrix.md`, `architecture.md`, `design-system.md`, `tasks.md`, and `decisions.md`.
@@ -79,6 +79,14 @@ The rebuild has the Phase 2 fake-engine vertical slice, SQLite queue/history per
 - Tests use `FakeAndroidEngineGateway`, a mock method channel, and recorded JSON; no test uses the native bridge or a live URL. They cover probe, classified errors, progress, audio args, final path, partial cleanup, cancellation, Android routing, and the Dart/native channel contract.
 - Device runtime, foreground service, notification permission, cookies, version display, and MediaStore/SAF are still pending. Parent-process cancellation is wired through the library; child-process cleanup and cancellation on a real device are not verified. Without a foreground service, backgrounding can stop or kill a download. Do not claim Android engine acceptance until the APK is installed and a public probe/download/cancel/restart is tested without committing the sample URL.
 
+## Rebuild release workflow
+- `.github/workflows/release.yml` runs on `v*` tags and manual dispatch. It builds the Android release APK, Windows portable ZIP, and Windows installer, then publishes a prerelease on tags. Manual dispatch only uploads artifacts.
+- Android signing is read from `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`. The workflow decodes the keystore into `$RUNNER_TEMP` and sets `MEDIAFLOW_REQUIRE_RELEASE_SIGNING=true`; missing secrets fail the build. Never commit the keystore or `key.properties`.
+- The Windows job bundles `yt-dlp.exe` (currently 2026.10.26) and a BtbN FFmpeg GPL build under `tools/` in the Flutter release folder. `apps/mediaflow/windows/installer.iss` builds the per-user installer; `apps/mediaflow/windows/README-Windows.txt` and the root `THIRD_PARTY_NOTICES.md` are copied into the package.
+- The first rebuild tag should be `v0.1.0` and stays a prerelease until Windows install and Android device probe/download/cancel/restart checks pass. Do not tag before the signing secrets exist.
+- `youtubedl-android` is GPL-3.0 and the Windows FFmpeg build is GPL. Keep `THIRD_PARTY_NOTICES.md` with the release and confirm distribution licensing before treating the release as production.
+- The old PyQt5 `.exe`, Linux binary, and rescue APK are built only by manual `legacy-release.yml`; they are not attached to new rebuild tags.
+
 ## Mobile contract (Phase 0 rescue)
 - Python emits `percent` in `0..1`; `normalizePercent()` now accepts `0..1` and `0..100` and is covered by tests.
 - Python returns `downloaded_files`; `extractDownloadedFiles()` reads it and falls back to `file_path`.
@@ -91,7 +99,9 @@ The rebuild has the Phase 2 fake-engine vertical slice, SQLite queue/history per
 
 ## Build and CI gotchas
 - `android/app/build.gradle.kts` hardcodes Chaquopy `buildPython` to `C:/Users/coldw/AppData/Local/Python/bin/python.exe` and Python 3.14. That path currently exists (Python 3.14.8), but `where python` may find the WindowsApps alias first. CI sets `CHAQUOPY_BUILD_PYTHON`.
-- `release.yml` now uses `working-directory: MediaFlow_Mobile`, Flutter 3.44.0, `flutter pub get`, `flutter analyze`, `flutter test`, and `flutter build apk`. Do not switch back to `Videos_Downloader_Mobile` or root `./gradlew`.
+- `legacy-release.yml` uses `working-directory: MediaFlow_Mobile`, Flutter 3.44.0, `flutter pub get`, `flutter analyze`, `flutter test`, and `flutter build apk`. Do not switch back to `Videos_Downloader_Mobile` or root `./gradlew`.
+- The rebuild release workflow builds on Flutter 3.44.0 and installs NDK `28.2.13676358` (the version Flutter 3.44.0 uses). Do not copy the rescue app's NDK 27 into the rebuild job.
+- Windows release packaging needs a Windows C++ toolchain; GitHub's `windows-latest` is the first place this runner is compiled. Do not claim the Windows build is verified locally.
 - Kotlin plugin must be >= 2.2.20: `share_plus 12.0.2` ships Kotlin 2.2 metadata, and Kotlin 2.0.21 fails with "Module was compiled with an incompatible version". AGP 8.7.3 works locally, but Flutter warns to upgrade to >= 8.11.1. `share_plus` also warns that it applies KGP and future Flutter will require Built-in Kotlin.
 - A clean Gradle build on Windows can still print Kotlin `Could not close incremental caches` / `different roots` errors; the APK builds anyway. If the build actually fails, run `flutter clean` or set `kotlin.incremental=false` in `android/gradle.properties`.
 - Default PowerShell execution policy blocks `build_debug_apk.ps1`; run it with `-ExecutionPolicy Bypass`.
@@ -134,5 +144,6 @@ The rebuild has the Phase 2 fake-engine vertical slice, SQLite queue/history per
 - `flutter test` passes.
 - `flutter build apk --debug` succeeds if Android code changed. The rebuild APK now contains the Android engine and has not been installed or run on a device/emulator. The rescue build also remains uninstalled.
 - Rebuild app: run `flutter analyze`, `flutter test`, and `flutter build apk --debug` from `apps/mediaflow`. A Windows build needs the Visual Studio C++ toolchain; state that it could not be run if it is missing. Do not claim Android engine acceptance until a device probe/download/cancel/restart is run.
+- Release workflow changes: parse both workflow YAML files and run a disposable-keystore Android release build with `MEDIAFLOW_REQUIRE_RELEASE_SIGNING=true`; verify the APK with `apksigner`. Do not commit the test keystore or build output. The Windows installer path is only verified by GitHub Actions.
 - `python app.py` starts if desktop code changed, or state why it could not be run.
 - Update this file if you discover a new trap.
