@@ -17,11 +17,27 @@ const _docId = 'fixtureNativeDocumentHHHHHH';
 String _fixture(String name) =>
     File('test/fixtures/drive/$name').readAsStringSync();
 
+bool _containsBytes(List<int> haystack, String needle) {
+  final target = utf8.encode(needle);
+  for (var i = 0; i + target.length <= haystack.length; i++) {
+    var match = true;
+    for (var j = 0; j < target.length; j++) {
+      if (haystack[i + j] != target[j]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) return true;
+  }
+  return false;
+}
+
 DownloadJob _job({
   required String url,
   String title = 'Download',
   String? relativePath,
   String id = 'job-1',
+  List<MediaEntry> zipEntries = const [],
 }) {
   return DownloadJob(
     id: id,
@@ -34,6 +50,7 @@ DownloadJob _job({
     status: JobStatus.downloading,
     createdAt: DateTime(2026, 1, 1),
     relativePath: relativePath,
+    zipEntries: zipEntries,
   );
 }
 
@@ -266,6 +283,246 @@ void main() {
     );
     expect(File(completed.filePath).readAsBytesSync(), [7, 8]);
   });
+
+  test('builds a ZIP from the selected folder files', () async {
+    transport
+      ..enqueueOpen(
+        downloadResponse(
+          bytes: utf8.encode('first'),
+          disposition: 'attachment; filename="One.txt"',
+        ),
+      )
+      ..enqueueOpen(
+        downloadResponse(
+          bytes: [2, 3],
+          disposition: 'attachment; filename="Two.bin"',
+        ),
+      );
+
+    final events = await adapter
+        .download(
+          _job(
+            url: 'https://drive.google.com/drive/folders/$_folderId',
+            title: 'Folder',
+            zipEntries: const [
+              MediaEntry(
+                title: 'One.txt',
+                url: 'https://drive.google.com/file/d/$_fileId/view',
+                relativePath: 'One.txt',
+              ),
+              MediaEntry(
+                title: 'Two.bin',
+                url:
+                    'https://drive.google.com/file/d/'
+                    'fixtureFileBEEEEEEEEEEEEE/view',
+                relativePath: 'Nested/Two.bin',
+              ),
+            ],
+          ),
+        )
+        .toList();
+
+    final completed = events.whereType<DownloadCompleted>().single;
+    expect(completed.filePath, endsWith('Folder.zip'));
+    expect(completed.skipped, isEmpty);
+    expect(File(completed.filePath).existsSync(), isTrue);
+    expect(completed.totalBytes, File(completed.filePath).lengthSync());
+    final archive = File(completed.filePath).readAsBytesSync();
+    expect(archive.take(4), [0x50, 0x4b, 0x03, 0x04]);
+    expect(_containsBytes(archive, 'One.txt'), isTrue);
+    expect(_containsBytes(archive, 'Nested/Two.bin'), isTrue);
+    expect(
+      temp.listSync().where((entry) => entry.path.contains('.mediaflow_zip_')),
+      isEmpty,
+    );
+  });
+
+  test('ZIP keeps successful files and reports skipped entries', () async {
+    transport
+      ..enqueueOpen(downloadResponse(statusCode: 403))
+      ..enqueueOpen(
+        downloadResponse(
+          bytes: utf8.encode('kept'),
+          disposition: 'attachment; filename="Kept.txt"',
+        ),
+      );
+
+    final events = await adapter
+        .download(
+          _job(
+            url: 'https://drive.google.com/drive/folders/$_folderId',
+            title: 'Partial folder',
+            zipEntries: const [
+              MediaEntry(
+                title: 'Blocked.txt',
+                url: 'https://drive.google.com/file/d/$_fileId/view',
+                relativePath: 'Blocked.txt',
+              ),
+              MediaEntry(
+                title: 'Kept.txt',
+                url:
+                    'https://drive.google.com/file/d/'
+                    'fixtureFileBEEEEEEEEEEEEE/view',
+                relativePath: 'Kept.txt',
+              ),
+            ],
+          ),
+        )
+        .toList();
+
+    final completed = events.whereType<DownloadCompleted>().single;
+    expect(completed.skipped, hasLength(1));
+    expect(completed.skipped.single.title, 'Blocked.txt');
+    expect(completed.skipped.single.code, MediaFlowErrorCode.permissionDenied);
+  });
+
+  test('ZIP fails cleanly when every entry fails', () async {
+    transport
+      ..enqueueOpen(downloadResponse(statusCode: 403))
+      ..enqueueOpen(downloadResponse(statusCode: 404));
+
+    final events = await adapter
+        .download(
+          _job(
+            url: 'https://drive.google.com/drive/folders/$_folderId',
+            title: 'Failed folder',
+            zipEntries: const [
+              MediaEntry(
+                title: 'One.txt',
+                url: 'https://drive.google.com/file/d/$_fileId/view',
+                relativePath: 'One.txt',
+              ),
+              MediaEntry(
+                title: 'Two.txt',
+                url:
+                    'https://drive.google.com/file/d/'
+                    'fixtureFileBEEEEEEEEEEEEE/view',
+                relativePath: 'Two.txt',
+              ),
+            ],
+          ),
+        )
+        .toList();
+
+    final failed = events.whereType<DownloadFailed>().single;
+    expect(failed.skipped, hasLength(2));
+    expect(
+      File(
+        '${temp.path}${Platform.pathSeparator}Failed folder.zip',
+      ).existsSync(),
+      isFalse,
+    );
+    expect(
+      temp.listSync().where((entry) => entry.path.contains('.mediaflow_zip_')),
+      isEmpty,
+    );
+  });
+
+  test('reports every entry when archive staging cannot start', () async {
+    final blocker = File('${temp.path}${Platform.pathSeparator}blocked')
+      ..writeAsStringSync('not a directory');
+    adapter = DriveSourceAdapter(
+      transport: transport,
+      outputDirectory: blocker.path,
+    );
+
+    final entries = const [
+      MediaEntry(
+        title: 'One.txt',
+        url: 'https://drive.google.com/file/d/$_fileId/view',
+        relativePath: 'One.txt',
+      ),
+      MediaEntry(
+        title: 'Two.txt',
+        url:
+            'https://drive.google.com/file/d/'
+            'fixtureFileBEEEEEEEEEEEEE/view',
+        relativePath: 'Two.txt',
+      ),
+    ];
+    final events = await adapter
+        .download(
+          _job(
+            url: 'https://drive.google.com/drive/folders/$_folderId',
+            title: 'Failed staging',
+            zipEntries: entries,
+          ),
+        )
+        .toList();
+
+    final failed = events.whereType<DownloadFailed>().single;
+    expect(failed.skipped, hasLength(2));
+    expect(failed.skipped.map((failure) => failure.title), [
+      'One.txt',
+      'Two.txt',
+    ]);
+    expect(
+      failed.skipped.map((failure) => failure.url),
+      entries.map((entry) => entry.url),
+    );
+  });
+
+  test(
+    'cancelling an archive removes staging and does not write a ZIP',
+    () async {
+      final controller = StreamController<List<int>>();
+      var aborted = false;
+      transport.enqueueOpen(
+        DriveDownloadResponse(
+          statusCode: 200,
+          finalUri: Uri.parse('https://drive.google.com/uc?id=$_fileId'),
+          headers: const {
+            'content-type': 'application/octet-stream',
+            'content-length': '100',
+          },
+          body: controller.stream,
+          abort: () {
+            aborted = true;
+            if (!controller.isClosed) controller.close();
+          },
+        ),
+      );
+
+      final future = adapter
+          .download(
+            _job(
+              url: 'https://drive.google.com/drive/folders/$_folderId',
+              title: 'Cancel folder',
+              zipEntries: const [
+                MediaEntry(
+                  title: 'One.bin',
+                  url: 'https://drive.google.com/file/d/$_fileId/view',
+                  relativePath: 'One.bin',
+                ),
+              ],
+            ),
+          )
+          .toList();
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (transport.openRequests.isEmpty &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+
+      await adapter.cancel('job-1');
+      final events = await future;
+
+      expect(aborted, isTrue);
+      expect(events.whereType<DownloadCancelled>(), hasLength(1));
+      expect(
+        temp
+            .listSync(recursive: true)
+            .where((entry) => entry.path.endsWith('.zip')),
+        isEmpty,
+      );
+      expect(
+        temp
+            .listSync(recursive: true)
+            .where((entry) => entry.path.contains('.mediaflow_zip_')),
+        isEmpty,
+      );
+    },
+  );
 
   test('follows the public confirmation form once', () async {
     final form =

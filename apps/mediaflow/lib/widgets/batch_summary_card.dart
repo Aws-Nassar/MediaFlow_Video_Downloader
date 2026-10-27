@@ -234,7 +234,7 @@ class BatchSummaryCard extends StatelessWidget {
                     icon: const Icon(Icons.copy_all_rounded, size: 17),
                     label: Text(strings.copyFailedLinks),
                   ),
-                if (!hasIssues && onOpenLibrary != null)
+                if (summary.completed > 0 && onOpenLibrary != null)
                   FilledButton.tonalIcon(
                     onPressed: onOpenLibrary,
                     icon: const Icon(Icons.video_library_outlined, size: 17),

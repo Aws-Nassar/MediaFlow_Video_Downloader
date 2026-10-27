@@ -83,7 +83,9 @@ proxy or host content.
   no OAuth.
 - [x] Use `apps/mediaflow/` and `com.mediaflow.app` for the scaffold; confirm
   before release.
-- [ ] Approve proposed dependencies before they are added. Phase 2 added none.
+- [ ] Approve proposed dependencies before they are added. Phase 2 and the ZIP
+  step added none.
 - [ ] Confirm Android `minSdk` (scaffold uses 24) and storage behavior.
-- [ ] Confirm ZIP default, recursion, and skip-versus-stop behavior.
+- [x] Confirm ZIP default (individual downloads), recursion (on), and
+  skip-versus-stop (skip and report) behavior.
 - [ ] Confirm whether Mega/Gofile/torrents are wanted later.

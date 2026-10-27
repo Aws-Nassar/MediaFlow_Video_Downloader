@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import '../models/media_models.dart';
 import '../sources/source_adapter.dart';
+import '../zip/zip_archive_writer.dart';
 import 'drive_folder_expander.dart';
 import 'drive_folder_parser.dart';
 import 'drive_folder_repository.dart';
@@ -170,6 +171,11 @@ class DriveSourceAdapter
       return;
     }
 
+    if (job.isArchive) {
+      yield* _archiveStream(job);
+      return;
+    }
+
     final uri = Uri.tryParse(job.url);
     final link = uri == null ? null : DriveLinks.parse(uri);
     if (link == null) {
@@ -229,11 +235,319 @@ class DriveSourceAdapter
     }
   }
 
+  Stream<DownloadEvent> _archiveStream(DownloadJob job) async* {
+    final running = _RunningDriveDownload();
+    _running[job.id] = running;
+    try {
+      await for (final event in _downloadArchive(job, running)) {
+        yield event;
+      }
+    } on _DriveCancelled {
+      yield const DownloadCancelled();
+    } catch (error) {
+      if (running.cancelled) {
+        yield const DownloadCancelled();
+      } else {
+        yield DownloadFailed(_downloadError(error));
+      }
+    } finally {
+      _running.remove(job.id);
+    }
+  }
+
+  Stream<DownloadEvent> _downloadArchive(
+    DownloadJob job,
+    _RunningDriveDownload running,
+  ) async* {
+    final entries = job.zipEntries;
+    final skipped = <BatchFailure>[];
+    final reportedEntries = <int>{};
+    final files = <ZipArchiveEntry>[];
+    Directory? staging;
+    MediaFlowError? firstError;
+    var processed = 0;
+    var downloadedBytes = 0;
+
+    try {
+      if (entries.isEmpty) {
+        yield const DownloadFailed(
+          MediaFlowError(
+            code: MediaFlowErrorCode.zipFailed,
+            technicalDetails: 'The folder selection is empty.',
+          ),
+        );
+        return;
+      }
+
+      staging = await _createStagingDirectory(job);
+      for (var index = 0; index < entries.length; index++) {
+        final entry = entries[index];
+        if (running.cancelled) throw const _DriveCancelled();
+        final blocked = entry.blockedCode;
+        if (blocked != null) {
+          skipped.add(_archiveIssue(job, entry, blocked));
+          reportedEntries.add(index);
+          processed++;
+          yield _archiveProgress(
+            processed: processed,
+            entryCount: entries.length,
+            downloadedBytes: downloadedBytes,
+          );
+          continue;
+        }
+
+        String? stagedPath;
+        try {
+          final source = _entrySource(entry);
+          final child = DownloadJob(
+            id: job.id,
+            batchId: job.batchId,
+            url: entry.url,
+            sourceId: job.sourceId,
+            sourceLabel: job.sourceLabel,
+            title: entry.title,
+            downloadType: job.downloadType,
+            status: JobStatus.downloading,
+            createdAt: DateTime.now(),
+            relativePath: entry.relativePath,
+          );
+
+          await for (final event in _downloadFile(
+            job: child,
+            running: running,
+            initialUri: source.uri,
+            exportExtension: source.extension,
+            baseDirectory: staging.path,
+          )) {
+            switch (event) {
+              case DownloadProgress():
+                yield _archiveProgress(
+                  processed: processed,
+                  entryCount: entries.length,
+                  downloadedBytes: downloadedBytes + event.downloadedBytes,
+                  currentFraction: event.fraction,
+                  bytesPerSecond: event.bytesPerSecond,
+                  eta: event.eta,
+                );
+              case DownloadCompleted():
+                stagedPath = event.filePath;
+                downloadedBytes += event.totalBytes;
+              case DownloadFailed():
+                throw MediaFlowException(event.error);
+              case DownloadCancelled():
+                throw const _DriveCancelled();
+            }
+          }
+        } on _DriveCancelled {
+          rethrow;
+        } catch (error) {
+          if (running.cancelled) throw const _DriveCancelled();
+          final mapped = _downloadError(error);
+          firstError ??= mapped;
+          skipped.add(_archiveIssue(job, entry, mapped.code));
+          reportedEntries.add(index);
+          stagedPath = null;
+        }
+
+        if (stagedPath != null) {
+          final file = File(stagedPath);
+          files.add(
+            ZipArchiveEntry(name: _relativeTo(staging, file), file: file),
+          );
+        }
+        processed++;
+        yield _archiveProgress(
+          processed: processed,
+          entryCount: entries.length,
+          downloadedBytes: downloadedBytes,
+        );
+      }
+
+      if (files.isEmpty) {
+        yield DownloadFailed(
+          firstError ??
+              const MediaFlowError(
+                code: MediaFlowErrorCode.zipFailed,
+                technicalDetails: 'No files could be added to the ZIP archive.',
+              ),
+          skipped: skipped,
+        );
+        return;
+      }
+
+      final target = await _zipTarget(job.title);
+      final part = File('${target.path}.part');
+      await _deleteFile(part);
+      var finalTarget = target;
+      int zipBytes;
+      try {
+        final progressController = StreamController<DownloadEvent>();
+        final write = const ZipArchiveWriter().write(
+          target: part,
+          entries: files,
+          isCancelled: () => running.cancelled,
+          onProgress: (progress) {
+            progressController.add(
+              DownloadProgress(
+                fraction: (0.85 + progress.fraction * 0.15).clamp(0.0, 1.0),
+                downloadedBytes: downloadedBytes + progress.bytesWritten,
+                totalBytes: 0,
+                partialPath: part.path,
+              ),
+            );
+          },
+        );
+        unawaited(write.whenComplete(progressController.close));
+        await for (final event in progressController.stream) {
+          yield event;
+        }
+        zipBytes = await write;
+
+        if (running.cancelled) throw const _DriveCancelled();
+        try {
+          await part.rename(finalTarget.path);
+        } on FileSystemException {
+          finalTarget = await _availableFile(finalTarget);
+          await part.rename(finalTarget.path);
+        }
+      } on ZipArchiveCancelled {
+        await _deleteFile(part);
+        throw const _DriveCancelled();
+      } catch (_) {
+        await _deleteFile(part);
+        rethrow;
+      }
+
+      yield DownloadCompleted(
+        filePath: finalTarget.path,
+        totalBytes: zipBytes,
+        skipped: skipped,
+      );
+    } on _DriveCancelled {
+      rethrow;
+    } catch (error) {
+      final mapped = _downloadError(error);
+      for (var index = 0; index < entries.length; index++) {
+        if (!reportedEntries.contains(index)) {
+          skipped.add(_archiveIssue(job, entries[index], mapped.code));
+        }
+      }
+      yield DownloadFailed(mapped, skipped: skipped);
+    } finally {
+      if (staging != null) {
+        try {
+          if (await staging.exists()) await staging.delete(recursive: true);
+        } on FileSystemException {
+          // A staging folder left behind is less important than the result.
+        }
+      }
+    }
+  }
+
+  DownloadProgress _archiveProgress({
+    required int processed,
+    required int entryCount,
+    required int downloadedBytes,
+    double currentFraction = 0,
+    double? bytesPerSecond,
+    Duration? eta,
+  }) {
+    final fraction = ((processed + currentFraction) / entryCount * 0.85).clamp(
+      0.0,
+      1.0,
+    );
+    return DownloadProgress(
+      fraction: fraction,
+      downloadedBytes: downloadedBytes,
+      totalBytes: 0,
+      bytesPerSecond: bytesPerSecond,
+      eta: eta,
+    );
+  }
+
+  BatchFailure _archiveIssue(
+    DownloadJob job,
+    MediaEntry entry,
+    MediaFlowErrorCode code,
+  ) {
+    return BatchFailure(
+      jobId: job.id,
+      title: entry.title,
+      url: entry.url,
+      code: code,
+    );
+  }
+
+  _EntrySource _entrySource(MediaEntry entry) {
+    final uri = Uri.tryParse(entry.url);
+    final link = uri == null ? null : DriveLinks.parse(uri);
+    if (link == null || link.isFolder) {
+      throw const MediaFlowException(
+        MediaFlowError(
+          code: MediaFlowErrorCode.invalidUrl,
+          technicalDetails: 'The folder entry is not a Drive file link.',
+        ),
+      );
+    }
+    if (link.isNative) {
+      final export = _nativeExportFor(link);
+      if (export == null) {
+        throw const MediaFlowException(
+          MediaFlowError(
+            code: MediaFlowErrorCode.unsupportedUrl,
+            technicalDetails:
+                'This Google-native file type has no public export path.',
+          ),
+        );
+      }
+      return _EntrySource(uri: export.uri, extension: export.extension);
+    }
+    return _EntrySource(uri: _downloadUri(link));
+  }
+
+  Future<Directory> _createStagingDirectory(DownloadJob job) async {
+    final base = Directory(outputDirectory).absolute;
+    await base.create(recursive: true);
+    final directory = Directory(
+      [
+        base.path,
+        '.mediaflow_zip_${safeFileName(job.id)}_${DateTime.now().microsecondsSinceEpoch}',
+      ].join(Platform.pathSeparator),
+    );
+    await directory.create(recursive: true);
+    return directory;
+  }
+
+  Future<File> _zipTarget(String title) async {
+    final base = Directory(outputDirectory).absolute;
+    await base.create(recursive: true);
+    var name = safeFileName(title);
+    if (!name.toLowerCase().endsWith('.zip')) name = '$name.zip';
+    return _availableFile(File([base.path, name].join(Platform.pathSeparator)));
+  }
+
+  String _relativeTo(Directory base, File file) {
+    final basePath = base.path.endsWith(Platform.pathSeparator)
+        ? base.path
+        : '${base.path}${Platform.pathSeparator}';
+    final path = file.absolute.path;
+    final inside = Platform.isWindows
+        ? path.toLowerCase().startsWith(basePath.toLowerCase())
+        : path.startsWith(basePath);
+    if (inside) {
+      return path.substring(basePath.length).replaceAll('\\', '/');
+    }
+    return file.uri.pathSegments.isEmpty
+        ? safeFileName(file.path)
+        : file.uri.pathSegments.last;
+  }
+
   Stream<DownloadEvent> _downloadFile({
     required DownloadJob job,
     required _RunningDriveDownload running,
     required Uri initialUri,
     String? exportExtension,
+    String? baseDirectory,
   }) async* {
     var requestUri = initialUri;
     var attempts = 0;
@@ -323,6 +637,7 @@ class DriveSourceAdapter
         running: running,
         disposition: disposition,
         exportExtension: exportExtension,
+        baseDirectory: baseDirectory,
       )) {
         yield event;
       }
@@ -336,11 +651,13 @@ class DriveSourceAdapter
     required _RunningDriveDownload running,
     required String? disposition,
     required String? exportExtension,
+    String? baseDirectory,
   }) async* {
     final target = await _resolveTarget(
       job: job,
       disposition: disposition,
       exportExtension: exportExtension,
+      baseDirectory: baseDirectory,
     );
     final part = File('${target.path}.part');
     try {
@@ -457,6 +774,7 @@ class DriveSourceAdapter
     required DownloadJob job,
     required String? disposition,
     required String? exportExtension,
+    String? baseDirectory,
   }) async {
     final relative = job.relativePath?.trim();
     var candidate = relative == null || relative.isEmpty
@@ -478,7 +796,7 @@ class DriveSourceAdapter
     }
     if (segments.isEmpty) segments.add(safeFileName(job.title));
 
-    final base = Directory(outputDirectory).absolute;
+    final base = Directory(baseDirectory ?? outputDirectory).absolute;
     await base.create(recursive: true);
     var target = File([base.path, ...segments].join(Platform.pathSeparator));
     final basePath = base.path.endsWith(Platform.pathSeparator)
@@ -714,4 +1032,11 @@ class _NativeExport {
   final Uri uri;
 
   const _NativeExport({required this.extension, required this.uri});
+}
+
+class _EntrySource {
+  final Uri uri;
+  final String? extension;
+
+  const _EntrySource({required this.uri, this.extension});
 }

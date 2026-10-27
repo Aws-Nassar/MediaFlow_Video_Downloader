@@ -464,7 +464,7 @@ These are proposed and require approval before being added:
 |---|---|---|---|
 | `drift` + `sqlite3_flutter_libs` | typed DB/migrations | both | `sqflite` + FFI |
 | `dio` | HTTP with cancel/progress | both | Dart `HttpClient` |
-| `archive` or native ZIP | folder ZIP | both | native ZIP per platform |
+| `archive` or native ZIP | folder ZIP | both | dependency-free Store/ZIP64 writer (implemented) |
 | `desktop_drop` | drag/drop URLs | Windows | manual paste |
 | `window_manager` | min size/title bar | Windows | default runner |
 | `url_launcher` | open in browser | both | platform channel |

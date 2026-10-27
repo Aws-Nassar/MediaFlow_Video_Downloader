@@ -71,10 +71,20 @@ void main() {
 
     expect(find.text('FOLDER CONTENTS'), findsOneWidget);
     expect(find.text('Project folder'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Blocked form'),
+      80,
+      scrollable: find.byType(Scrollable).last,
+    );
     expect(find.text('Blocked form'), findsOneWidget);
     expect(find.textContaining('not supported'), findsOneWidget);
     expect(find.text('2 selected'), findsWidgets);
 
+    await tester.scrollUntilVisible(
+      find.text('One.txt'),
+      -80,
+      scrollable: find.byType(Scrollable).last,
+    );
     await tester.tap(find.text('Clear'));
     await tester.pump();
     expect(find.text('0 selected'), findsWidgets);
@@ -89,6 +99,50 @@ void main() {
     expect(selection!.entries.length, 1);
     expect(selection.entries.single.title, 'One');
     expect(selection.asZip, isFalse);
+  });
+
+  testWidgets('download as ZIP returns the checked rows', (tester) async {
+    final state = AppState();
+    addTearDown(state.dispose);
+    late Future<CollectionSelection?> pending;
+
+    await tester.pumpWidget(
+      MediaFlowScope(
+        state: state,
+        child: MaterialApp(
+          theme: buildStudioTheme(StudioThemeMode.dark),
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  onPressed: () {
+                    pending = showDriveCollectionSelection(
+                      context,
+                      _descriptor,
+                    );
+                  },
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Clear'));
+    await tester.pump();
+    await tester.tap(find.text('One.txt'));
+    await tester.pump();
+    await tester.tap(find.text('Download as ZIP'));
+    await tester.pumpAndSettle();
+
+    final selection = await pending;
+    expect(selection, isNotNull);
+    expect(selection!.asZip, isTrue);
+    expect(selection.entries.single.title, 'One');
   });
 
   testWidgets('download all excludes blocked rows', (tester) async {

@@ -20,17 +20,21 @@ Drive HTTP support:
   folder expansion, direct downloads, the public confirmation form, and
   Docs/Sheets/Slides export as PDF/XLSX/PPTX.
 - Drive folder selection sheet with per-file checkboxes, select all/none,
-  Download selected, Download all, and blocked rows that cannot be selected.
+  Download selected, Download all, Download as ZIP, and blocked rows that cannot
+  be selected.
+- Folder ZIP/ZIP64 archives built from successful files only. Failed or skipped
+  entries keep their item name, link, and localized reason in the batch summary.
 - Unsupported native types and recursion-limit skips are reported in the batch
   summary instead of being silently dropped.
 - In-memory state only. No persistence.
 - No new packages beyond the Flutter SDK and the generated lint/test tooling.
 - No Google sign-in, OAuth, API key, or Google API package.
 
-The ZIP/ZIP64 folder archive, SQLite history, and the Android engine bridge are
-next. The Windows runner and live endpoints have not been manually verified here
-because the Visual Studio C++ toolchain, engine binaries, and an authorized live
-sample are unavailable.
+SQLite history and the Android engine bridge are next. The ZIP writer was opened
+successfully with Windows .NET `ZipFile` in this environment; Android extraction
+is still unverified. The Windows runner and live endpoints have not been manually
+verified here because the Visual Studio C++ toolchain, engine binaries, and an
+authorized live sample are unavailable.
 
 ## Run
 
@@ -72,7 +76,9 @@ tests inject zero-delay fakes and never download anything.
 - `lib/models/media_models.dart` — jobs, descriptors, errors, summaries.
 - `lib/sources/` — adapter contract, registry, fake adapter.
 - `lib/drive/` — public Drive link parsing, folder HTML, HTTP transport,
-  recursive expansion, and download adapter.
+  recursive expansion, ZIP staging/download, and download adapter.
+- `lib/zip/` — dependency-free Store-method ZIP/ZIP64 writer with CRC-32,
+  progress, and cancellation.
 - `lib/engine/ytdlp/` — yt-dlp command, parser, process, and engine bridge.
 - `lib/state/app_state.dart` — in-memory queue, retry, batch summary.
 - `lib/screens/` — Analyze, Queue, Library, Settings.

@@ -80,7 +80,7 @@ class _DriveCollectionSelectionSheetState
     });
   }
 
-  void _submit({bool all = false}) {
+  void _submit({bool all = false, bool asZip = false}) {
     if (all) _setAll(true);
     if (_selected.isEmpty) {
       setState(
@@ -92,7 +92,9 @@ class _DriveCollectionSelectionSheetState
       for (var i = 0; i < _entries.length; i++)
         if (_selected.contains(i)) _entries[i],
     ];
-    Navigator.of(context).pop(CollectionSelection(entries: selection));
+    Navigator.of(
+      context,
+    ).pop(CollectionSelection(entries: selection, asZip: asZip));
   }
 
   @override
@@ -220,7 +222,17 @@ class _DriveCollectionSelectionSheetState
                                   : () => _submit(all: true),
                               child: Text(strings.downloadAll),
                             ),
-                            OutlinedButton(
+                            OutlinedButton.icon(
+                              onPressed: _selected.isEmpty
+                                  ? null
+                                  : () => _submit(asZip: true),
+                              icon: const Icon(
+                                Icons.archive_outlined,
+                                size: 17,
+                              ),
+                              label: Text(strings.downloadAsZip),
+                            ),
+                            FilledButton(
                               onPressed: _selected.isEmpty ? null : _submit,
                               child: Text(strings.downloadSelected),
                             ),

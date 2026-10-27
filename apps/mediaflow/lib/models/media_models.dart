@@ -164,6 +164,8 @@ class DownloadJob {
   DateTime? completedAt;
   int itemIndex;
   int itemCount;
+  final List<MediaEntry> zipEntries;
+  List<BatchFailure> itemSkipped;
 
   DownloadJob({
     required this.id,
@@ -186,11 +188,16 @@ class DownloadJob {
     this.completedAt,
     this.itemIndex = 1,
     this.itemCount = 1,
-  }) : createdAtLabel = formatShortDate(createdAt);
+    this.zipEntries = const [],
+    List<BatchFailure>? itemSkipped,
+  }) : createdAtLabel = formatShortDate(createdAt),
+       itemSkipped = itemSkipped ?? [];
 
   bool get isTerminal => status.isTerminal;
 
   bool get isFailed => status == JobStatus.failed;
+
+  bool get isArchive => zipEntries.isNotEmpty;
 
   double get safeProgress => progress.clamp(0, 1).toDouble();
 }

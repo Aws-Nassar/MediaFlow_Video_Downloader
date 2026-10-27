@@ -47,14 +47,20 @@ class DownloadProgress extends DownloadEvent {
 class DownloadCompleted extends DownloadEvent {
   final String filePath;
   final int totalBytes;
+  final List<BatchFailure> skipped;
 
-  const DownloadCompleted({required this.filePath, required this.totalBytes});
+  const DownloadCompleted({
+    required this.filePath,
+    required this.totalBytes,
+    this.skipped = const [],
+  });
 }
 
 class DownloadFailed extends DownloadEvent {
   final MediaFlowError error;
+  final List<BatchFailure> skipped;
 
-  const DownloadFailed(this.error);
+  const DownloadFailed(this.error, {this.skipped = const []});
 }
 
 class DownloadCancelled extends DownloadEvent {

@@ -206,6 +206,48 @@ class AppState extends ChangeNotifier {
             }
 
             final selected = selection.entries.toSet();
+            if (selection.asZip) {
+              final zipEntries = [
+                for (final entry in entries)
+                  if (entry.isBlocked || selected.contains(entry)) entry,
+              ];
+              final downloadable = zipEntries
+                  .where((entry) => !entry.isBlocked)
+                  .length;
+              if (downloadable == 0) {
+                final failed = _newJob(
+                  batchId: batchId,
+                  url: descriptor.canonicalUrl,
+                  fallbackTitle: descriptor.title,
+                  sourceLabel: descriptor.sourceLabel,
+                  sourceId: descriptor.sourceId,
+                  status: JobStatus.failed,
+                  error: const MediaFlowError(
+                    code: MediaFlowErrorCode.emptyCollection,
+                    technicalDetails: 'No downloadable files were selected.',
+                  ),
+                );
+                _jobs.add(failed);
+                _notify();
+                continue;
+              }
+
+              final archive = _newJob(
+                batchId: batchId,
+                url: descriptor.canonicalUrl,
+                fallbackTitle: descriptor.title,
+                sourceLabel: descriptor.sourceLabel,
+                sourceId: descriptor.sourceId,
+                status: JobStatus.queued,
+                zipEntries: zipEntries,
+              );
+              archive.title = descriptor.title;
+              archive.itemCount = 1;
+              _jobs.add(archive);
+              _notify();
+              continue;
+            }
+
             final children = <DownloadJob>[];
             for (final entry in entries) {
               final blocked = entry.blockedCode;
@@ -304,6 +346,7 @@ class AppState extends ChangeNotifier {
     required JobStatus status,
     MediaFlowError? error,
     String? relativePath,
+    List<MediaEntry> zipEntries = const [],
   }) {
     return DownloadJob(
       id: 'job-${++_jobCounter}',
@@ -316,6 +359,7 @@ class AppState extends ChangeNotifier {
       status: status,
       error: error,
       relativePath: relativePath,
+      zipEntries: zipEntries,
       createdAt: DateTime.now(),
     );
   }
@@ -365,11 +409,13 @@ class AppState extends ChangeNotifier {
             job.totalBytes = event.totalBytes;
             job.bytesPerSecond = null;
             job.eta = null;
+            job.itemSkipped = List.of(event.skipped);
             job.completedAt = DateTime.now();
             _notify();
           case DownloadFailed():
             job.status = JobStatus.failed;
             job.error = event.error;
+            job.itemSkipped = List.of(event.skipped);
             job.bytesPerSecond = null;
             job.eta = null;
             _notify();
@@ -406,31 +452,81 @@ class AppState extends ChangeNotifier {
     if (batchJobs.isEmpty) return;
     if (batchJobs.any((job) => !job.isTerminal)) return;
 
-    final completed = batchJobs
-        .where((job) => job.status == JobStatus.completed)
-        .toList();
-    final failures = batchJobs
-        .where((job) => job.status == JobStatus.failed)
-        .map(
-          (job) => BatchFailure(
-            jobId: job.id,
-            title: job.title,
-            url: job.url,
-            code: job.error?.code ?? MediaFlowErrorCode.unknown,
-          ),
-        )
-        .toList();
-    final skippedItems = batchJobs
-        .where((job) => job.status == JobStatus.skipped)
-        .map(
-          (job) => BatchFailure(
-            jobId: job.id,
-            title: job.title,
-            url: job.url,
-            code: job.error?.code ?? MediaFlowErrorCode.unknown,
-          ),
-        )
-        .toList();
+    final failures = <BatchFailure>[];
+    final skippedItems = <BatchFailure>[];
+    var total = 0;
+    var completedCount = 0;
+    var failedCount = 0;
+    var skippedCount = 0;
+    var cancelledCount = 0;
+    var totalBytes = 0;
+
+    for (final job in batchJobs) {
+      if (job.isArchive) {
+        final itemCount = job.zipEntries.length;
+        total += itemCount;
+        skippedItems.addAll(job.itemSkipped);
+        skippedCount += job.itemSkipped.length;
+        final unaccounted = (itemCount - job.itemSkipped.length).clamp(
+          0,
+          itemCount,
+        );
+        switch (job.status) {
+          case JobStatus.completed:
+            completedCount += unaccounted;
+            totalBytes += job.totalBytes ?? 0;
+          case JobStatus.failed:
+            if (unaccounted > 0) {
+              failedCount += unaccounted;
+              failures.add(
+                BatchFailure(
+                  jobId: job.id,
+                  title: job.title,
+                  url: job.url,
+                  code: job.error?.code ?? MediaFlowErrorCode.zipFailed,
+                ),
+              );
+            }
+          case JobStatus.cancelled:
+            cancelledCount += unaccounted;
+          default:
+            break;
+        }
+        continue;
+      }
+
+      total++;
+      switch (job.status) {
+        case JobStatus.completed:
+          completedCount++;
+          totalBytes += job.totalBytes ?? 0;
+        case JobStatus.failed:
+          failedCount++;
+          failures.add(
+            BatchFailure(
+              jobId: job.id,
+              title: job.title,
+              url: job.url,
+              code: job.error?.code ?? MediaFlowErrorCode.unknown,
+            ),
+          );
+        case JobStatus.skipped:
+          skippedCount++;
+          skippedItems.add(
+            BatchFailure(
+              jobId: job.id,
+              title: job.title,
+              url: job.url,
+              code: job.error?.code ?? MediaFlowErrorCode.unknown,
+            ),
+          );
+        case JobStatus.cancelled:
+          cancelledCount++;
+        default:
+          break;
+      }
+    }
+
     final started =
         _batchStartedAt[batchId] ??
         batchJobs
@@ -438,17 +534,12 @@ class AppState extends ChangeNotifier {
             .reduce((a, b) => a.isBefore(b) ? a : b);
     final summary = BatchSummary(
       batchId: batchId,
-      total: batchJobs.length,
-      completed: completed.length,
-      failed: failures.length,
-      skipped: batchJobs.where((job) => job.status == JobStatus.skipped).length,
-      cancelled: batchJobs
-          .where((job) => job.status == JobStatus.cancelled)
-          .length,
-      totalBytes: completed.fold<int>(
-        0,
-        (sum, job) => sum + (job.totalBytes ?? 0),
-      ),
+      total: total,
+      completed: completedCount,
+      failed: failedCount,
+      skipped: skippedCount,
+      cancelled: cancelledCount,
+      totalBytes: totalBytes,
       elapsed: DateTime.now().difference(started),
       failures: failures,
       skippedItems: skippedItems,
@@ -521,6 +612,7 @@ class AppState extends ChangeNotifier {
     job.error = null;
     job.filePath = null;
     job.completedAt = null;
+    job.itemSkipped = [];
   }
 
   void dismissSummary() {

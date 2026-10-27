@@ -246,6 +246,12 @@ The UI needs a dedicated failure card and summary sheet.
 **Consequences:** Large folders need progress, cancellation, and a free-space
 check. Individual downloads remain the more resumable option.
 
+**Implementation note (2026-10-27):** The rebuild uses a dependency-free
+Store-method writer in `apps/mediaflow/lib/zip/`; it emits ZIP64 records when
+required, stages successful files in a hidden folder, writes through `.part`,
+and cleans staging on success, failure, and cancellation. Size preview,
+free-space warning, and live Drive acceptance remain pending.
+
 ## ADR-017 — Bundled engine discovery and demo routing
 
 **Status:** Accepted
