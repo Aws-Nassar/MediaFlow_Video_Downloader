@@ -143,6 +143,10 @@ engine is launched.
 {"type":"cancelled","jobId":"..."}
 ```
 
+The current Android bridge forwards marker lines and normalizes them into this
+schema in Dart; the JSON event schema remains the target boundary, not the
+wire format yet.
+
 ### Windows
 
 `WindowsYtDlpEngine` starts `yt-dlp.exe` with:
@@ -163,19 +167,35 @@ files.
 
 ### Android
 
-`AndroidYtDlpEngine` uses a `MethodChannel` and an `EventChannel` backed by
-Kotlin:
+`AndroidYtDlpEngine` implements the shared `DownloadEngine` contract. The
+current bridge uses one `MethodChannel` (`com.mediaflow.app/engine`) in both
+directions:
 
-- `init`, `version`, `probe`, `start`, `cancel` methods.
-- Kotlin wraps `youtubedl-android`'s request/execute callback.
-- The callback is normalized into the shared event schema in Dart.
-- Final paths come from the engine's output markers if supported; otherwise a
-  post-download scan of the job's output directory resolves new files.
-- Active jobs are hosted by a foreground service so they survive backgrounding.
+- Dart calls `probe`, `download`, and `cancel`. Native sends only marked stdout
+  lines back as `line` events.
+- Dart builds the same arguments as Windows with `YtDlpCommandBuilder` and
+  removes the trailing URL. Kotlin creates `YoutubeDLRequest(url)`, appends the
+  shared arguments, and lets the library add `--no-cache-dir`, `--js-runtimes`,
+  and `--ffmpeg-location`.
+- Probe returns raw `--dump-single-json` output; Dart reuses the desktop
+  `parseYtDlpProbe`. Download lines are parsed by the existing `MF_PROGRESS` and
+  `MF_FILE` parsers. The native terminal map carries status, final path, size,
+  details, exit code, and an optional initialization error code.
+- `YoutubeDL` initializes lazily on the first probe; FFmpeg initializes lazily on
+  the first download. `--no-simulate` is required because `--print` implies
+  simulation.
+- `android:extractNativeLibs="true"` and legacy JNI packaging are required
+  because the library extracts the zipped Python and FFmpeg payloads.
+- Final paths come from the `after_move:MF_FILE` marker. The library's
+  `processId` cancellation kill is wired to the app job id; parent-process
+  cancellation is covered, but child-process cleanup is not verified.
+- A foreground service and progress notification are not implemented yet.
+  Backgrounding can stop or kill a download. Cookies, version display, and
+  MediaStore/SAF are also pending.
 
-The pinned `youtubedl-android` version must be verified for cookie support,
-output-path reporting, cancellation, and FFmpeg availability before the
-vertical slice is accepted. Do not add a second Python runtime.
+The bridge is covered with a fake gateway, a mocked method channel, and recorded
+JSON. Device runtime and live-source acceptance are still required. Do not add a
+second Python runtime.
 
 ### Direct HTTP
 

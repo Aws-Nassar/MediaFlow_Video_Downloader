@@ -6,8 +6,8 @@ as references.
 
 ## Current state
 
-Phase 2 vertical slice plus the Windows yt-dlp bridge and link-shared Google
-Drive HTTP support:
+Phase 2 vertical slice plus the Windows and Android yt-dlp bridges and
+link-shared Google Drive HTTP support:
 
 - Analyze → Queue → Library → Settings shell.
 - Studio Dark, Light, and OLED themes.
@@ -16,6 +16,9 @@ Drive HTTP support:
 - Per-item failure cards, continue-on-error, and an end-of-batch summary with
   retry-failed and copy-failed-links.
 - Windows yt-dlp.exe + FFmpeg support when the binaries are present.
+- Android yt-dlp + FFmpeg through the pinned `youtubedl-android` runtime, with
+  probe/download/cancel, shared progress and error parsing, and app-specific
+  output storage.
 - Link-shared Google Drive file/folder listing over public HTML, recursive
   folder expansion, direct downloads, the public confirmation form, and
   Docs/Sheets/Slides export as PDF/XLSX/PPTX.
@@ -40,11 +43,13 @@ Drive HTTP support:
   rows are discarded. Progress writes are throttled to about once per second.
 - No Google sign-in, OAuth, API key, or Google API package.
 
-The Android engine bridge is next. The ZIP writer was opened successfully with
-Windows .NET `ZipFile` in this environment; Android extraction is still
-unverified. The Windows runner and live endpoints have not been manually verified
-here because the Visual Studio C++ toolchain, engine binaries, and an authorized
-live sample are unavailable.
+The Android engine bridge compiles and is covered by fake-gateway tests, but it
+has not been installed or run on a device/emulator. The foreground service,
+progress notification, cookies, and MediaStore/SAF are still pending. The ZIP
+writer was opened successfully with Windows .NET `ZipFile` in this environment;
+Android extraction is still unverified. The Windows runner and live endpoints
+have not been manually verified here because the Visual Studio C++ toolchain,
+engine binaries, and an authorized live sample are unavailable.
 
 ## Run
 
@@ -93,7 +98,9 @@ tests inject zero-delay fakes and never download anything.
   progress, and cancellation.
 - `lib/platform/` — default output directory, free-space probe, and the Android
   `com.mediaflow.app/platform` method-channel bridge.
-- `lib/engine/ytdlp/` — yt-dlp command, parser, process, and engine bridge.
+- `lib/engine/ytdlp/` — shared `DownloadEngine` contract, yt-dlp command
+  builder, parser, process bridge, desktop engine, and Android method-channel
+  engine/gateway.
 - `lib/storage/` — Drift database, repository, and JSON codecs for queue/history.
 - `lib/state/app_state.dart` — queue scheduler, retry, batch summary, and
   persistence integration.
@@ -113,6 +120,12 @@ tests inject zero-delay fakes and never download anything.
 - The Android default-output, free-space channel, and SQLite database compile
   into the debug APK but have not been run on a device or emulator. MediaStore/SAF
   output and a restart on a real device are still pending.
+- The Android engine adds `youtubedl-android` 0.18.1 and its FFmpeg artifact.
+  The debug APK carries three ABIs plus zipped Python/FFmpeg payloads, so it is
+  large; release ABI splits are pending. First use extracts the runtime, and the
+  first download also extracts FFmpeg. No foreground service/notification is
+  implemented yet, so backgrounding can stop a download. Cancellation kills the
+  tracked yt-dlp process; child-process cleanup is not verified.
 - The database is `mediaflow.sqlite` in application-support storage. Schema v1
   has `jobs` and `batch_summaries`; future schema changes need a Drift migration.
 - A ZIP job interrupted by an app kill requeues, but its hidden

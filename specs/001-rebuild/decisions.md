@@ -301,3 +301,50 @@ engine when packaged. A release package must place both executables where the
 resolver can find them; missing binaries are a visible failure, not a silent
 fake download.
 
+## ADR-018 - Android yt-dlp bridge
+
+**Status:** Accepted (2026-10-27)
+
+**Context:** ADR-002 locks `youtubedl-android` + FFmpeg for Android and forbids a
+new Chaquopy/Python runtime. The rebuild needs probe, download, cancellation,
+progress, and error mapping on Android without duplicating the proven desktop
+JSON/progress/error logic.
+
+**Decision:**
+- Pin `io.github.junkfood02.youtubedl-android:library:0.18.1` and
+  `io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1`.
+- Add a shared `DownloadEngine` interface. `YtDlpEngine` (desktop subprocess)
+  and `AndroidYtDlpEngine` both implement it; `YtDlpSourceAdapter` accepts
+  either.
+- Dart builds the command arguments with `YtDlpCommandBuilder`, removes the
+  trailing URL, and sends the arguments plus the URL over
+  `MethodChannel('com.mediaflow.app/engine')`. Kotlin appends the URL and the
+  library-owned `--no-cache-dir`, `--js-runtimes`, and `--ffmpeg-location`
+  flags. Do not add those flags from Dart.
+- Probe returns raw `--dump-single-json` output to Dart so the existing
+  `parseYtDlpProbe` is reused. Download forwards only `MF_PROGRESS` and
+  `MF_FILE` lines; Dart reuses the existing progress/file parsers. The native
+  terminal result carries status, final path, size, details, exit code, and an
+  optional initialization error code.
+- Initialize `YoutubeDL` lazily on the first probe and FFmpeg lazily on the
+  first download. Keep `--no-simulate`; `--print` implies simulation.
+- Set `android:extractNativeLibs="true"` and
+  `packaging.jniLibs.useLegacyPackaging = true`; the runtime extracts
+  `libpython.zip.so` and `libffmpeg.zip.so` before use. Keep the zip payloads in
+  the APK.
+- Build debug ABIs `x86_64`, `armeabi-v7a`, and `arm64-v8a`. Flutter has no x86
+  engine; omit x86. Release ABI splits remain pending.
+
+**Consequences:** Android probe/download/cancel share the desktop parsers and
+error classifier, and fake-gateway tests never need a device or network. The
+debug APK is large because it carries three ABIs plus the zipped Python/FFmpeg
+payloads and debug Flutter assets; release ABI splits are still pending. First
+use extracts Python, and the first download also extracts FFmpeg, so the probe
+timeout is 90 seconds. `youtubedl-android` is GPL-3.0, so confirm distribution
+licensing before publishing a release. Device verification, foreground service,
+progress notification, cookies, and MediaStore/SAF remain pending. Without a
+foreground service, backgrounding can stop or kill a download. Cancellation uses
+the library's parent-process kill; child-process cleanup is not verified. The
+current bridge uses one method channel in both directions; an EventChannel is
+not required for this slice.
+

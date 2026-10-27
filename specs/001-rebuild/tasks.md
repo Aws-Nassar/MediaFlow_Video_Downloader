@@ -96,13 +96,26 @@ Suggested commit: `feat(engine): add Windows yt-dlp bridge and YouTube slice`.
 
 Entry: Phase 3 patterns proven; `youtubedl-android` pinned and verified.
 
-- [ ] Add the Kotlin engine bridge and Method/EventChannels.
-- [ ] Normalize Android events into the shared schema.
+Status: the Kotlin bridge, shared `DownloadEngine` contract, probe/download/
+cancel wiring, and shared progress/error parsing are implemented. The debug APK
+builds with the pinned runtime and FFmpeg. Device runtime, foreground service,
+notifications, cookies, and MediaStore/SAF remain pending, so acceptance is not
+met.
+
+- [x] Add the Kotlin engine bridge and Method/EventChannels. The current slice
+  uses one method channel in both directions for commands and marker lines; an
+  EventChannel is not required yet.
+- [x] Normalize Android events into the shared schema. Marker lines reuse the
+  desktop parsers; the native terminal map carries path/size/error fields.
 - [ ] Implement foreground service and progress notification.
 - [ ] Verify cancellation, final-path reporting, cookie support, and FFmpeg.
+  Cancellation, path capture, and FFmpeg args are unit-tested with a fake
+  gateway; device/cookie verification and child-process cleanup on cancel
+  remain pending.
 - [ ] Write completed files through MediaStore/SAF.
 - [ ] Handle Android 13 notification permission and service lifecycle.
-- [ ] Remove any rebuild dependency on Chaquopy or `MANAGE_EXTERNAL_STORAGE`.
+- [x] Remove any rebuild dependency on Chaquopy or `MANAGE_EXTERNAL_STORAGE`.
+  The merged manifest requests only `INTERNET`.
 
 Acceptance:
 - A public YouTube video downloads on a device.
@@ -111,8 +124,7 @@ Acceptance:
 - Files are visible to other apps and playable.
 - No broad storage permission is requested.
 
-Suggested commit: `feat(android): add youtubedl-android engine and foreground
-downloads`.
+Suggested commit: `feat(android): add youtubedl-android engine bridge`.
 
 ## Phase 5 — Multi-source v1
 

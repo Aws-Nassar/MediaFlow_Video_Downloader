@@ -74,6 +74,26 @@ void main() {
       expect(args, contains('--extract-audio'));
       expect(args[args.indexOf('--audio-format') + 1], 'm4a');
     });
+
+    test('can advertise FFmpeg without a desktop executable path', () {
+      final video = YtDlpCommandBuilder.downloadArgs(
+        uri: _uri,
+        downloadType: DownloadType.video,
+        outputDirectory: '/data/user/0/com.mediaflow.app/files/MediaFlow',
+        ffmpegAvailable: true,
+      );
+      final audio = YtDlpCommandBuilder.downloadArgs(
+        uri: _uri,
+        downloadType: DownloadType.audio,
+        outputDirectory: '/data/user/0/com.mediaflow.app/files/MediaFlow',
+        ffmpegAvailable: true,
+      );
+
+      expect(video[video.indexOf('-f') + 1], 'bv*+ba/b');
+      expect(video, isNot(contains('--ffmpeg-location')));
+      expect(audio, contains('--extract-audio'));
+      expect(audio, isNot(contains('--ffmpeg-location')));
+    });
   });
 
   group('yt-dlp probe parser', () {

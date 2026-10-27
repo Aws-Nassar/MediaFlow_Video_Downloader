@@ -9,9 +9,12 @@ import java.io.File
 
 class MainActivity : FlutterActivity() {
     private val channelName = "com.mediaflow.app/platform"
+    private var engineBridge: AndroidEngineBridge? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        engineBridge?.dispose()
+        engineBridge = AndroidEngineBridge(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -37,6 +40,12 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        engineBridge?.dispose()
+        engineBridge = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     private fun downloadDirectory(): String {

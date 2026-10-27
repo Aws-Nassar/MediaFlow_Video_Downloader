@@ -1,7 +1,7 @@
 # MediaFlow Rebuild — Spec 001
 
-Status: Phase 2 fake-engine scaffold implemented
-Last updated: 2026-10-26
+Status: Phase 4 Android engine bridge implemented; device verification pending
+Last updated: 2026-10-27
 
 ## Why this exists
 
@@ -55,9 +55,10 @@ proxy or host content.
   be replaced, not extended, by the rebuild.
 - The rebuild lives in `apps/mediaflow/` so the references remain runnable.
   The app path and `com.mediaflow.app` application ID are used for the scaffold;
-  confirm them before release. The Phase 2 fake-engine vertical slice is built;
-  Android debug APK builds, while the Windows runner still needs a Visual Studio
-  C++ toolchain on this machine.
+  confirm them before release. The Phase 2 fake-engine vertical slice and the
+  Android `youtubedl-android` bridge are built; Android runtime verification is
+  still pending. The Windows runner still needs a Visual Studio C++ toolchain on
+  this machine.
 
 ## Hard boundaries
 

@@ -20,6 +20,20 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // youtubedl-android ships the Python/yt-dlp runtime and FFmpeg as
+        // native libraries. Flutter has no x86 engine, so x86 is omitted.
+        ndk {
+            abiFilters.addAll(listOf("x86_64", "armeabi-v7a", "arm64-v8a"))
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // The engine's .so files include zipped Python/FFmpeg payloads and
+            // must be extracted before the runtime initializes.
+            useLegacyPackaging = true
+        }
     }
 
     buildTypes {
@@ -39,4 +53,11 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Pinned Android engine. The library is GPL-3.0; confirm distribution
+    // licensing before publishing a release build.
+    implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
+    implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
 }

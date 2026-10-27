@@ -3,12 +3,13 @@ import 'dart:io';
 
 import '../../models/media_models.dart';
 import '../../sources/source_adapter.dart';
+import 'download_engine.dart';
 import 'engine_process.dart';
 import 'ytdlp_command_builder.dart';
 import 'ytdlp_error_mapper.dart';
 import 'ytdlp_parser.dart';
 
-class YtDlpEngine {
+class YtDlpEngine implements DownloadEngine {
   YtDlpEngine({
     required this.executablePath,
     required this.ffmpegPath,
@@ -27,14 +28,20 @@ class YtDlpEngine {
 
   final Map<String, _RunningDownload> _running = {};
 
+  @override
   bool get hasFfmpeg => ffmpegPath != null && ffmpegPath!.trim().isNotEmpty;
 
+  @override
+  String get engineLabel => hasFfmpeg ? 'yt-dlp + FFmpeg' : 'yt-dlp';
+
+  @override
   void setOutputDirectory(String value) {
     final trimmed = value.trim();
     if (trimmed.isEmpty) return;
     outputDirectory = trimmed;
   }
 
+  @override
   Future<MediaDescriptor> probe(
     Uri uri, {
     required DownloadType downloadType,
@@ -118,6 +125,7 @@ class YtDlpEngine {
     }
   }
 
+  @override
   Stream<DownloadEvent> download(DownloadJob job) async* {
     if (job.downloadType == DownloadType.audio && !hasFfmpeg) {
       yield const DownloadFailed(
@@ -248,6 +256,7 @@ class YtDlpEngine {
     }
   }
 
+  @override
   Future<void> cancel(String jobId) async {
     final running = _running[jobId];
     if (running == null) return;

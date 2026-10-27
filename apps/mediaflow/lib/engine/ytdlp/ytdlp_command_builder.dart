@@ -29,11 +29,14 @@ abstract final class YtDlpCommandBuilder {
     required DownloadType downloadType,
     required String outputDirectory,
     String? ffmpegPath,
+    bool? ffmpegAvailable,
     int retries = 3,
     Duration socketTimeout = const Duration(seconds: 20),
   }) {
     final safeRetries = retries.clamp(0, 10);
-    final hasFfmpeg = ffmpegPath != null && ffmpegPath.trim().isNotEmpty;
+    final hasFfmpeg =
+        ffmpegAvailable ?? (ffmpegPath != null && ffmpegPath.trim().isNotEmpty);
+    final hasLocation = ffmpegPath != null && ffmpegPath.trim().isNotEmpty;
 
     return [
       '--ignore-config',
@@ -57,7 +60,7 @@ abstract final class YtDlpCommandBuilder {
       outputDirectory,
       '-o',
       outputTemplate,
-      if (hasFfmpeg) ...['--ffmpeg-location', ffmpegPath],
+      if (hasLocation) ...['--ffmpeg-location', ffmpegPath],
       if (downloadType == DownloadType.audio) ...[
         '-f',
         'ba/b',
