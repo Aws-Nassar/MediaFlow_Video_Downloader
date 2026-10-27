@@ -78,7 +78,8 @@ machine, so no public YouTube download has been run.
 - [x] Wire YouTube single video and Shorts (not runtime-verified).
 - [ ] Add format/quality selection and audio-only. Audio-only works; the
   quality picker is still pending.
-- [ ] Persist jobs and file paths to SQLite (or the approved store).
+- [x] Persist jobs and file paths to SQLite (or the approved store). Drift v1
+  persists queue rows and completed file paths.
 - [ ] Add engine-version display and a missing-engine error. The missing-engine
   error and engine label are implemented; version display is pending.
 - [x] Add tests with representative yt-dlp JSON and a fake process (no network).
@@ -151,12 +152,14 @@ dependency-free Store/ZIP64 writer, contain only successful downloads, and carry
 per-entry skipped reasons into the batch summary. The sheet shows known totals
 and free space and confirms a low-space start, including the roughly 2x ZIP
 staging peak. The current public folder parser does not obtain per-file sizes, so
-real folder totals remain unavailable. Persistence and manual live acceptance
-remain.
+real folder totals remain unavailable. Queue/history persistence is now
+implemented; manual live acceptance remains.
 
 - [ ] Collection probe/expand/select for playlists and folders.
 - [x] Expand parsed collection entries into individual jobs.
-- [ ] Persist collection items and per-item status.
+- [x] Persist collection items and per-item status for expanded collections.
+  Expanded child jobs and ZIP entry/skip lists survive restart; generic playlist
+  expansion is still pending.
 - [x] Google Drive ID parsing.
 - [x] Link-shared Drive file download over HTTP, including the public
   confirmation form and cancellation.
@@ -191,7 +194,12 @@ ZIP`.
 
 Entry: core downloads and collections work.
 
-- [ ] Persistent queue with restart recovery.
+Status: Drift persistence is implemented. Interrupted downloads requeue and
+auto-start; history and batch summaries reload; progress writes are throttled.
+Round-trip and restart tests use in-memory SQLite plus a temp-file reopen test.
+Android device restart and the Windows runner remain unverified.
+
+- [x] Persistent queue with restart recovery.
 - [ ] Global pause-queue and per-item cancel/retry.
 - [ ] Android share target (`ACTION_SEND` text).
 - [ ] Windows clipboard/drag-drop intake.
@@ -199,7 +207,7 @@ Entry: core downloads and collections work.
 - [ ] Live recording flow and stop/finalize.
 - [ ] Disk-space and network-change handling.
 - [ ] Retry/backoff and `Retry-After`.
-- [ ] Persist per-item errors and batch summaries.
+- [x] Persist per-item errors and batch summaries.
 - [ ] Failure card actions: retry, open browser, copy link, skip, remove.
 - [ ] Batch summary actions: retry failed, copy failed links, view report.
 - [ ] Android completion notification for a mixed batch.

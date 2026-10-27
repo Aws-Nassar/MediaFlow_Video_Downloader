@@ -7,6 +7,7 @@ import '../models/media_models.dart';
 import '../platform/platform_storage.dart';
 import '../sources/fake_source_adapter.dart';
 import '../sources/source_adapter.dart';
+import '../storage/job_repository.dart';
 import '../theme/studio_theme.dart';
 
 class AppState extends ChangeNotifier {
@@ -15,6 +16,7 @@ class AppState extends ChangeNotifier {
     int concurrency = 2,
     this.outputDirectory = fallbackOutputDirectory,
     DiskSpaceProbe? diskSpaceProbe,
+    this.repository,
   }) : adapter = adapter ?? FakeSourceAdapter(),
        concurrency = concurrency.clamp(1, 4),
        diskSpaceProbe = diskSpaceProbe ?? const PlatformDiskSpaceProbe() {
@@ -47,6 +49,13 @@ class AppState extends ChangeNotifier {
   bool isAnalyzing = false;
   String? analyzeError;
   BatchSummary? lastSummary;
+  String? persistenceError;
+
+  final JobRepository? repository;
+  final Map<String, DateTime> _lastProgressWrite = {};
+  Future<void> _persistence = Future<void>.value();
+  bool _initialized = false;
+  bool _persistenceReady = false;
 
   int _jobCounter = 0;
   int _batchCounter = 0;
@@ -85,6 +94,107 @@ class AppState extends ChangeNotifier {
 
   TextDirection get textDirection =>
       isArabic ? TextDirection.rtl : TextDirection.ltr;
+
+  /// Loads persisted queue entries and history.
+  ///
+  /// Interrupted downloads are put back in the queue. [autoStart] is exposed
+  /// for tests that need to inspect the recovered queue before downloads start.
+  Future<void> initialize({bool autoStart = true}) async {
+    if (_initialized) return;
+    _initialized = true;
+    final repository = this.repository;
+    if (repository == null) return;
+
+    List<DownloadJob> loadedJobs;
+    try {
+      loadedJobs = await repository.loadJobs();
+    } catch (error) {
+      _recordPersistenceError('load queue', error);
+      return;
+    }
+
+    var loadedSummaries = <BatchSummary>[];
+    try {
+      loadedSummaries = await repository.loadSummaries();
+    } catch (error) {
+      _recordPersistenceError('load history', error);
+    }
+
+    await _restoreJobs(loadedJobs, repository);
+    _persistenceReady = true;
+
+    final activeBatchIds = {
+      for (final job in _jobs)
+        if (job.status.isActive) job.batchId,
+    };
+    for (final summary in loadedSummaries) {
+      if (activeBatchIds.contains(summary.batchId)) {
+        try {
+          await repository.deleteSummary(summary.batchId);
+        } catch (error) {
+          _recordPersistenceError('clear stale summary', error);
+        }
+        continue;
+      }
+      _summaries.add(summary);
+      _finalizedBatches.add(summary.batchId);
+    }
+    lastSummary = _summaries.isEmpty ? null : _summaries.first;
+
+    for (final job in _jobs) {
+      final started = _batchStartedAt[job.batchId];
+      if (started == null || job.createdAt.isBefore(started)) {
+        _batchStartedAt[job.batchId] = job.createdAt;
+      }
+    }
+
+    final loadedBatchIds = _jobs.map((job) => job.batchId).toSet();
+    for (final batchId in loadedBatchIds) {
+      _maybeFinalizeBatch(batchId);
+    }
+
+    _notify();
+    if (autoStart) _schedule();
+  }
+
+  /// Waits until the persistence writes queued so far have completed.
+  Future<void> flushPersistence() => _persistence;
+
+  /// Starts queued jobs again, for example after a paused restore.
+  void resumeQueue() => _schedule();
+
+  Future<void> _restoreJobs(
+    List<DownloadJob> loadedJobs,
+    JobRepository repository,
+  ) async {
+    for (final job in loadedJobs) {
+      if (job.status == JobStatus.probing) {
+        try {
+          await repository.deleteJob(job.id);
+        } catch (error) {
+          _recordPersistenceError('discard probe row', error);
+        }
+        continue;
+      }
+      if (job.status == JobStatus.downloading ||
+          job.status == JobStatus.processing) {
+        job.status = JobStatus.queued;
+        job.progress = 0;
+        job.downloadedBytes = 0;
+        job.bytesPerSecond = null;
+        job.eta = null;
+        job.error = null;
+        job.filePath = null;
+        job.completedAt = null;
+        try {
+          await repository.saveJob(job);
+        } catch (error) {
+          _recordPersistenceError('restore interrupted job', error);
+        }
+      }
+      _jobs.add(job);
+    }
+  }
 
   void setLocale(Locale value) {
     if (locale == value) return;
@@ -146,7 +256,7 @@ class AppState extends ChangeNotifier {
     analyzeError = null;
     _notify();
 
-    final batchId = 'batch-${++_batchCounter}';
+    final batchId = _nextBatchId();
     _batchStartedAt[batchId] = DateTime.now();
     final seen = <String>{};
 
@@ -170,6 +280,7 @@ class AppState extends ChangeNotifier {
             error: const MediaFlowError(code: MediaFlowErrorCode.invalidUrl),
           );
           _jobs.add(job);
+          _persistJob(job);
           _notify();
           continue;
         }
@@ -202,6 +313,7 @@ class AppState extends ChangeNotifier {
             } catch (error) {
               job.status = JobStatus.failed;
               job.error = _errorFrom(error);
+              _persistJob(job);
               _notify();
               continue;
             }
@@ -235,6 +347,7 @@ class AppState extends ChangeNotifier {
                   ),
                 );
                 _jobs.add(failed);
+                _persistJob(failed);
                 _notify();
                 continue;
               }
@@ -251,6 +364,7 @@ class AppState extends ChangeNotifier {
               archive.title = descriptor.title;
               archive.itemCount = 1;
               _jobs.add(archive);
+              _persistJob(archive);
               _notify();
               continue;
             }
@@ -300,6 +414,9 @@ class AppState extends ChangeNotifier {
               children[i].itemCount = children.length;
             }
             _jobs.addAll(children);
+            for (final child in children) {
+              _persistJob(child);
+            }
             _notify();
           } else if (descriptor.isCollection && descriptor.itemCount > 1) {
             _jobs.remove(job);
@@ -320,6 +437,7 @@ class AppState extends ChangeNotifier {
               child.itemIndex = i;
               child.itemCount = descriptor.itemCount;
               _jobs.add(child);
+              _persistJob(child);
             }
             _notify();
           } else {
@@ -328,11 +446,13 @@ class AppState extends ChangeNotifier {
             job.sourceLabel = descriptor.sourceLabel;
             job.totalBytes = descriptor.totalBytes;
             job.status = JobStatus.queued;
+            _persistJob(job);
             _notify();
           }
         } catch (error) {
           job.status = JobStatus.failed;
           job.error = _errorFrom(error);
+          _persistJob(job);
           _notify();
         }
       }
@@ -342,6 +462,18 @@ class AppState extends ChangeNotifier {
       _schedule();
       _maybeFinalizeBatch(batchId);
     }
+  }
+
+  String _nextJobId() {
+    final stamp = DateTime.now().microsecondsSinceEpoch;
+    final counter = (++_jobCounter).toString().padLeft(6, '0');
+    return 'job-$stamp-$counter';
+  }
+
+  String _nextBatchId() {
+    final stamp = DateTime.now().microsecondsSinceEpoch;
+    final counter = (++_batchCounter).toString().padLeft(6, '0');
+    return 'batch-$stamp-$counter';
   }
 
   DownloadJob _newJob({
@@ -356,7 +488,7 @@ class AppState extends ChangeNotifier {
     List<MediaEntry> zipEntries = const [],
   }) {
     return DownloadJob(
-      id: 'job-${++_jobCounter}',
+      id: _nextJobId(),
       batchId: batchId,
       url: url,
       sourceId: sourceId,
@@ -395,11 +527,12 @@ class AppState extends ChangeNotifier {
     job.downloadedBytes = 0;
     job.bytesPerSecond = null;
     job.eta = null;
+    _persistJob(job);
     _notify();
 
     try {
       await for (final event in adapter.download(job)) {
-        if (_disposed) return;
+        if (_disposed || !_jobs.contains(job)) return;
         switch (event) {
           case DownloadProgress():
             job.status = JobStatus.downloading;
@@ -408,6 +541,7 @@ class AppState extends ChangeNotifier {
             job.totalBytes = event.totalBytes;
             job.bytesPerSecond = event.bytesPerSecond;
             job.eta = event.eta;
+            _persistProgress(job);
             _notify();
           case DownloadCompleted():
             job.status = JobStatus.completed;
@@ -418,6 +552,7 @@ class AppState extends ChangeNotifier {
             job.eta = null;
             job.itemSkipped = List.of(event.skipped);
             job.completedAt = DateTime.now();
+            _persistJob(job);
             _notify();
           case DownloadFailed():
             job.status = JobStatus.failed;
@@ -425,25 +560,31 @@ class AppState extends ChangeNotifier {
             job.itemSkipped = List.of(event.skipped);
             job.bytesPerSecond = null;
             job.eta = null;
+            _persistJob(job);
             _notify();
           case DownloadCancelled():
             job.status = JobStatus.cancelled;
             job.bytesPerSecond = null;
             job.eta = null;
+            _persistJob(job);
             _notify();
         }
       }
     } catch (error) {
-      job.status = JobStatus.failed;
-      job.error = _errorFrom(error);
-      _notify();
+      if (_jobs.contains(job)) {
+        job.status = JobStatus.failed;
+        job.error = _errorFrom(error);
+        _persistJob(job);
+        _notify();
+      }
     } finally {
-      if (!job.status.isTerminal) {
+      if (_jobs.contains(job) && !job.status.isTerminal) {
         job.status = JobStatus.failed;
         job.error = const MediaFlowError(
           code: MediaFlowErrorCode.unknown,
           technicalDetails: 'The engine ended without a terminal event.',
         );
+        _persistJob(job);
       }
       _activeJobIds.remove(job.id);
       _notify();
@@ -551,9 +692,11 @@ class AppState extends ChangeNotifier {
       failures: failures,
       skippedItems: skippedItems,
     );
+    _summaries.removeWhere((existing) => existing.batchId == batchId);
     _summaries.insert(0, summary);
     lastSummary = summary;
     _finalizedBatches.add(batchId);
+    _persistSummary(summary);
     _notify();
   }
 
@@ -571,10 +714,8 @@ class AppState extends ChangeNotifier {
     }
     _jobs.remove(job);
     _activeJobIds.remove(jobId);
-    if (lastSummary?.batchId == job.batchId) {
-      lastSummary = null;
-    }
-    _finalizedBatches.remove(job.batchId);
+    _removeSummaryForBatch(job.batchId);
+    _deletePersistedJob(jobId);
     _notify();
     _maybeFinalizeBatch(job.batchId);
   }
@@ -584,8 +725,8 @@ class AppState extends ChangeNotifier {
     if (job == null || job.status.isActive) return;
     if (job.status == JobStatus.completed) return;
     _resetJob(job);
-    _finalizedBatches.remove(job.batchId);
-    if (lastSummary?.batchId == job.batchId) lastSummary = null;
+    _removeSummaryForBatch(job.batchId);
+    _persistJob(job);
     _batchStartedAt[job.batchId] = DateTime.now();
     _notify();
     _schedule();
@@ -594,17 +735,19 @@ class AppState extends ChangeNotifier {
   void retryFailed() {
     final summary = lastSummary;
     if (summary == null || summary.failures.isEmpty) return;
-    var changed = false;
+    final reset = <DownloadJob>[];
     for (final failure in summary.failures) {
       final job = _findJob(failure.jobId);
       if (job != null && job.status == JobStatus.failed) {
         _resetJob(job);
-        changed = true;
+        reset.add(job);
       }
     }
-    if (!changed) return;
-    _finalizedBatches.remove(summary.batchId);
-    lastSummary = null;
+    if (reset.isEmpty) return;
+    _removeSummaryForBatch(summary.batchId);
+    for (final job in reset) {
+      _persistJob(job);
+    }
     _batchStartedAt[summary.batchId] = DateTime.now();
     _notify();
     _schedule();
@@ -626,6 +769,62 @@ class AppState extends ChangeNotifier {
     if (lastSummary == null) return;
     lastSummary = null;
     _notify();
+  }
+
+  void _persistJob(DownloadJob job) {
+    if (!_persistenceReady || !_jobs.contains(job)) return;
+    _lastProgressWrite.remove(job.id);
+    _enqueuePersistence((repository) => repository.saveJob(job));
+  }
+
+  void _persistProgress(DownloadJob job) {
+    if (!_persistenceReady || !_jobs.contains(job)) return;
+    final now = DateTime.now();
+    final last = _lastProgressWrite[job.id];
+    if (last != null && now.difference(last) < const Duration(seconds: 1)) {
+      return;
+    }
+    _lastProgressWrite[job.id] = now;
+    _enqueuePersistence((repository) => repository.saveJobProgress(job));
+  }
+
+  void _persistSummary(BatchSummary summary) {
+    _enqueuePersistence((repository) => repository.saveSummary(summary));
+  }
+
+  void _deletePersistedJob(String jobId) {
+    _lastProgressWrite.remove(jobId);
+    _enqueuePersistence((repository) => repository.deleteJob(jobId));
+  }
+
+  void _deletePersistedSummary(String batchId) {
+    _enqueuePersistence((repository) => repository.deleteSummary(batchId));
+  }
+
+  void _removeSummaryForBatch(String batchId) {
+    _summaries.removeWhere((summary) => summary.batchId == batchId);
+    if (lastSummary?.batchId == batchId) lastSummary = null;
+    _finalizedBatches.remove(batchId);
+    _deletePersistedSummary(batchId);
+  }
+
+  void _enqueuePersistence(
+    Future<void> Function(JobRepository repository) action,
+  ) {
+    final repository = _persistenceReady ? this.repository : null;
+    if (repository == null) return;
+    _persistence = _persistence.then((_) async {
+      try {
+        await action(repository);
+      } catch (error) {
+        _recordPersistenceError('write', error);
+      }
+    });
+  }
+
+  void _recordPersistenceError(String operation, Object error) {
+    persistenceError = '$operation: $error';
+    debugPrint('MediaFlow persistence $operation failed: $error');
   }
 
   DownloadJob? _findJob(String id) {

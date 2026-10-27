@@ -94,16 +94,33 @@ can be adopted later without changing the domain model.
 
 ## ADR-007 — Persistence
 
-**Status:** Proposed
+**Status:** Accepted (2026-10-27)
 
 **Options:**
-- `drift` + `sqlite3_flutter_libs`: typed schema, migrations, good tests.
-- `sqflite` + `sqflite_common_ffi`: less codegen, two platform paths.
+- `drift` + `drift_flutter`: typed schema, migrations, generated queries, good
+  tests, and one SQLite path for Windows and Android.
+- `sqflite` + `sqflite_common_ffi`: fewer dev dependencies, but two platform
+  paths and hand-written SQL.
 - JSON files: not acceptable for queue state and 10k history rows.
 
-**Recommendation:** `drift` for typed jobs/collections/files and migrations.
-Requires dependency approval. Phase 2 uses an in-memory repository so the
-vertical slice does not depend on this decision.
+**Decision:** Use `drift 2.35` with `drift_flutter` and `path_provider`.
+The database file lives in application-support storage, not the user output
+folder. `drift_dev` + `build_runner` generate `lib/storage/app_database.g.dart`;
+the generated file is committed so a normal build does not need codegen.
+
+Schema v1 stores `jobs` and `batch_summaries`. Folder/ZIP entries, skipped items,
+and summary failures are JSON columns. Queue writes happen on creation, status
+transitions, and terminal results; progress writes are throttled to about once a
+second. On startup, interrupted `downloading`/`processing` jobs return to
+`queued` and auto-start. Incomplete `probing` rows are discarded. Missing batch
+summaries are rebuilt from terminal jobs.
+
+**Consequences:** New runtime dependencies are `drift`, `drift_flutter`, and
+`path_provider`; dev dependencies are `drift_dev` and `build_runner`. Run
+`dart run build_runner build` after changing a Drift table. `sqlite3` ships
+native assets, including `libsqlite3.so` in the Android APK. The schema is a
+subset of the target schema in `architecture.md`; job files, collection rows,
+settings, and source auth remain future work.
 
 ## ADR-008 — Google Drive: link-shared access only, no OAuth
 

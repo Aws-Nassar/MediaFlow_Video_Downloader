@@ -251,8 +251,9 @@ queued -> probing -> downloading -> processing -> completed
   `Retry-After` support. Never retry auth, permission, owner-disabled, DRM,
   paywall, or unsupported errors.
 - Queue state is persisted before each transition.
-- On startup, jobs in `downloading`/`processing` become `interrupted` and offer
-  resume/retry.
+- On startup, jobs in `downloading`/`processing` return to `queued` and
+  auto-start; probe-only rows are discarded. This is the implemented
+  resume/retry path.
 - "Pause queue" stops starting new jobs; active jobs keep running. True
   pause/resume is a later feature where the engine supports it.
 
@@ -354,6 +355,25 @@ storage. History is the completed subset of `jobs` joined with `job_files`.
 Batch summaries are the `batches` rows joined with failed jobs. Indexes on
 `jobs.status`, `jobs.created_at`, `jobs.batch_id`, `jobs.source_id`, and
 `batches.created_at`.
+
+Implementation note (2026-10-27):
+- Drift schema v1 currently implements `jobs` and `batch_summaries`. It stores
+  the job fields the current UI and engine need, plus `zipEntriesJson`,
+  `itemSkippedJson`, `failuresJson`, and `skippedItemsJson` for folder/ZIP
+  batches. `job_files`, `collection_items`, `source_auth`, settings, and the
+  separate `batches` row remain future work.
+- The database is opened with `drift_flutter` in application-support storage.
+  `jobs` are ordered by `created_at` plus a sortable ID; summaries use a
+  microseconds `savedAtUs` key so the newest summary restores deterministically.
+- A full job write happens on creation and every status transition. Progress
+  writes are throttled to roughly one per second. `AppState.flushPersistence()`
+  drains queued writes for tests and app lifecycle pauses.
+- Interrupted `downloading`/`processing` jobs are written back as `queued` during
+  restore and auto-scheduled. `probing` rows are deleted because analysis had not
+  produced a durable download. Batch summaries missing at startup are rebuilt
+  from terminal jobs.
+- The database path is app support storage, not the output folder. Android still
+  uses the app-specific output path from ADR-009.
 
 Data migration:
 - Optional one-time import of `~/.ytflow2_config.json` and
@@ -478,7 +498,7 @@ These are proposed and require approval before being added:
 
 | Dependency | Purpose | Platform | Alternative |
 |---|---|---|---|
-| `drift` + `sqlite3_flutter_libs` | typed DB/migrations | both | `sqflite` + FFI |
+| `drift` + `drift_flutter` | typed DB/migrations | both | implemented |
 | `dio` | HTTP with cancel/progress | both | Dart `HttpClient` |
 | `archive` or native ZIP | folder ZIP | both | dependency-free Store/ZIP64 writer (implemented) |
 | `desktop_drop` | drag/drop URLs | Windows | manual paste |

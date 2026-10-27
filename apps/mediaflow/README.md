@@ -33,21 +33,26 @@ Drive HTTP support:
   entries keep their item name, link, and localized reason in the batch summary.
 - Unsupported native types and recursion-limit skips are reported in the batch
   summary instead of being silently dropped.
-- In-memory state only. No persistence.
-- No new packages beyond the Flutter SDK and the generated lint/test tooling.
+- SQLite persistence through Drift for the queue, completed file paths, per-item
+  errors, ZIP entry/skip lists, and batch summaries. The database lives in
+  application-support storage, not the output folder.
+- On startup, interrupted downloads return to the queue and auto-start; probing
+  rows are discarded. Progress writes are throttled to about once per second.
 - No Google sign-in, OAuth, API key, or Google API package.
 
-SQLite history and the Android engine bridge are next. The ZIP writer was opened
-successfully with Windows .NET `ZipFile` in this environment; Android extraction
-is still unverified. The Windows runner and live endpoints have not been manually
-verified here because the Visual Studio C++ toolchain, engine binaries, and an
-authorized live sample are unavailable.
+The Android engine bridge is next. The ZIP writer was opened successfully with
+Windows .NET `ZipFile` in this environment; Android extraction is still
+unverified. The Windows runner and live endpoints have not been manually verified
+here because the Visual Studio C++ toolchain, engine binaries, and an authorized
+live sample are unavailable.
 
 ## Run
 
 ```powershell
 cd apps/mediaflow
 flutter pub get
+# only after changing a Drift table; the generated file is committed
+dart run build_runner build
 flutter analyze
 flutter test
 flutter build apk --debug
@@ -89,7 +94,9 @@ tests inject zero-delay fakes and never download anything.
 - `lib/platform/` — default output directory, free-space probe, and the Android
   `com.mediaflow.app/platform` method-channel bridge.
 - `lib/engine/ytdlp/` — yt-dlp command, parser, process, and engine bridge.
-- `lib/state/app_state.dart` — in-memory queue, retry, batch summary.
+- `lib/storage/` — Drift database, repository, and JSON codecs for queue/history.
+- `lib/state/app_state.dart` — queue scheduler, retry, batch summary, and
+  persistence integration.
 - `lib/screens/` — Analyze, Queue, Library, Settings.
 - `lib/widgets/` — shared cards, job tiles, batch summary.
 
@@ -103,7 +110,12 @@ tests inject zero-delay fakes and never download anything.
 - The current public folder parser does not obtain per-file sizes, so real
   folder totals remain unavailable and low-space confirmation only applies when
   an adapter supplies every selected `sizeBytes`.
-- The Android default-output and free-space channel compiles into the debug APK
-  but has not been run on a device or emulator. MediaStore/SAF output is still
-  pending.
+- The Android default-output, free-space channel, and SQLite database compile
+  into the debug APK but have not been run on a device or emulator. MediaStore/SAF
+  output and a restart on a real device are still pending.
+- The database is `mediaflow.sqlite` in application-support storage. Schema v1
+  has `jobs` and `batch_summaries`; future schema changes need a Drift migration.
+- A ZIP job interrupted by an app kill requeues, but its hidden
+  `.mediaflow_zip_*` staging folder is not cleaned on the next startup. Add
+  startup cleanup before calling ZIP restart acceptance complete.
 - The app ID is `com.mediaflow.app`; Android `minSdk` is 24.

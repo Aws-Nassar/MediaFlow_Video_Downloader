@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'screens/analyze_screen.dart';
@@ -17,11 +19,27 @@ class MediaFlowApp extends StatefulWidget {
   State<MediaFlowApp> createState() => _MediaFlowAppState();
 }
 
-class _MediaFlowAppState extends State<MediaFlowApp> {
+class _MediaFlowAppState extends State<MediaFlowApp>
+    with WidgetsBindingObserver {
   late final AppState _state = widget.appState ?? AppState();
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      unawaited(_state.flushPersistence());
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (widget.appState == null) _state.dispose();
     super.dispose();
   }
