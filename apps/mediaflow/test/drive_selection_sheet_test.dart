@@ -6,6 +6,12 @@ import 'package:mediaflow/state/media_flow_scope.dart';
 import 'package:mediaflow/theme/studio_theme.dart';
 import 'package:mediaflow/widgets/drive_selection_sheet.dart';
 
+import 'support/fake_disk_space_probe.dart';
+
+AppState _state({int? freeBytes = 1 << 30}) {
+  return AppState(diskSpaceProbe: FakeDiskSpaceProbe(freeBytes));
+}
+
 const _descriptor = MediaDescriptor(
   sourceId: 'drive.google.com',
   sourceLabel: 'Google Drive',
@@ -38,7 +44,7 @@ const _descriptor = MediaDescriptor(
 
 void main() {
   testWidgets('selection sheet returns only checked rows', (tester) async {
-    final state = AppState();
+    final state = _state();
     addTearDown(state.dispose);
     late Future<CollectionSelection?> pending;
 
@@ -102,7 +108,7 @@ void main() {
   });
 
   testWidgets('download as ZIP returns the checked rows', (tester) async {
-    final state = AppState();
+    final state = _state();
     addTearDown(state.dispose);
     late Future<CollectionSelection?> pending;
 
@@ -145,8 +151,64 @@ void main() {
     expect(selection.entries.single.title, 'One');
   });
 
+  testWidgets('warns when a ZIP needs more free space than available', (
+    tester,
+  ) async {
+    final state = _state(freeBytes: 400);
+    addTearDown(state.dispose);
+    late Future<CollectionSelection?> pending;
+
+    await tester.pumpWidget(
+      MediaFlowScope(
+        state: state,
+        child: MaterialApp(
+          theme: buildStudioTheme(StudioThemeMode.dark),
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: ElevatedButton(
+                  onPressed: () {
+                    pending = showDriveCollectionSelection(
+                      context,
+                      _descriptor,
+                    );
+                  },
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Free space: 400 B'), findsOneWidget);
+
+    await tester.tap(find.text('Download as ZIP'));
+    await tester.pumpAndSettle();
+    expect(find.text('Low disk space'), findsOneWidget);
+    expect(find.textContaining('600 B'), findsOneWidget);
+    expect(find.textContaining('400 B'), findsWidgets);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('FOLDER CONTENTS'), findsOneWidget);
+
+    await tester.tap(find.text('Download as ZIP'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Download anyway'));
+    await tester.pumpAndSettle();
+
+    final selection = await pending;
+    expect(selection, isNotNull);
+    expect(selection!.asZip, isTrue);
+    expect(selection.entries, hasLength(2));
+  });
+
   testWidgets('download all excludes blocked rows', (tester) async {
-    final state = AppState();
+    final state = _state();
     addTearDown(state.dispose);
     late Future<CollectionSelection?> pending;
 

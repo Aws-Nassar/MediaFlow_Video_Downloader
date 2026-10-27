@@ -211,7 +211,8 @@ HLS/DASH goes to yt-dlp, not the direct engine.
 
 ### ZIP
 - Prefer a streaming ZIP implementation that supports large files and ZIP64.
-- Show file count, total size, and free-space warning before starting.
+- Show file count and total size when known, display free space, and confirm a
+  low-space start (ZIP peak is about twice the payload).
 - Progress reports both the current file and the overall archive.
 - Cancellation removes the partial ZIP.
 - A folder with failures still produces a ZIP of the successful files, plus a
@@ -367,12 +368,27 @@ Windows:
 - `.part`/engine temp files cleaned on cancel and startup.
 
 Android:
-- Default output: `MediaStore.Downloads/MediaFlow` on API 29+.
+- Default output: `MediaStore.Downloads/MediaFlow` on API 29+ (target).
 - Custom output: SAF tree URI persisted with `takePersistableUriPermission`.
 - API 24–28: app-specific external directory + FileProvider share, or a legacy
   write permission if a public folder is required. Decision pending; never
   `MANAGE_EXTERNAL_STORAGE`.
 - Foreground service writes through a content resolver/SAF stream.
+
+Implementation note (2026-10-27):
+- Android currently resolves
+  `getExternalFilesDir(DIRECTORY_DOWNLOADS)/MediaFlow` over
+  `MethodChannel('com.mediaflow.app/platform')`, with `filesDir` as fallback.
+  This is app-specific storage, not public Downloads; MediaStore/SAF remain
+  pending. It requires no broad storage permission.
+- The same channel returns `StatFs.availableBytes` for the output path. Windows
+  free space is read with PowerShell; other desktops use `df -Pk`.
+- The Drive selection sheet displays free space and asks for confirmation when
+  every selected size is known and the payload exceeds free space. ZIP uses a
+  peak estimate of twice the selected payload for staging plus the archive.
+  A shortage warns; it does not hard-block.
+- The current public folder parser does not obtain per-file sizes, so real
+  folder totals and numeric low-space warnings remain unavailable.
 
 Filename template default:
 ```

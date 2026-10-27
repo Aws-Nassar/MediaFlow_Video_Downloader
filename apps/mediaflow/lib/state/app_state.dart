@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../l10n/app_strings.dart';
 import '../models/media_models.dart';
+import '../platform/platform_storage.dart';
 import '../sources/fake_source_adapter.dart';
 import '../sources/source_adapter.dart';
 import '../theme/studio_theme.dart';
@@ -12,9 +13,11 @@ class AppState extends ChangeNotifier {
   AppState({
     SourceAdapter? adapter,
     int concurrency = 2,
-    this.outputDirectory = 'Downloads/MediaFlow',
+    this.outputDirectory = fallbackOutputDirectory,
+    DiskSpaceProbe? diskSpaceProbe,
   }) : adapter = adapter ?? FakeSourceAdapter(),
-       concurrency = concurrency.clamp(1, 4) {
+       concurrency = concurrency.clamp(1, 4),
+       diskSpaceProbe = diskSpaceProbe ?? const PlatformDiskSpaceProbe() {
     registry = SourceRegistry([this.adapter]);
     final current = this.adapter;
     if (current is OutputDirectoryAware) {
@@ -23,7 +26,11 @@ class AppState extends ChangeNotifier {
   }
 
   final SourceAdapter adapter;
+  final DiskSpaceProbe diskSpaceProbe;
   late final SourceRegistry registry;
+
+  Future<int?> availableDiskBytes() =>
+      diskSpaceProbe.availableBytes(outputDirectory);
 
   final List<DownloadJob> _jobs = [];
   final List<BatchSummary> _summaries = [];

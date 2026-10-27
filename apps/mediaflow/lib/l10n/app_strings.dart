@@ -139,6 +139,16 @@ class AppStrings {
   String get blocked => _t('blocked');
   String get noFilesSelected => _t('noFilesSelected');
   String get skippedFiles => _t('skippedFiles');
+  String get freeSpace => _t('freeSpace');
+  String get diskSpaceWarning => _t('diskSpaceWarning');
+  String get downloadAnyway => _t('downloadAnyway');
+
+  String freeSpaceLabel(String value) =>
+      _t('freeSpaceLabel').replaceAll('{value}', value);
+
+  String diskSpaceWarningBody(String needed, String free) => _t(
+    'diskSpaceWarningBody',
+  ).replaceAll('{needed}', needed).replaceAll('{free}', free);
 
   String statusLabel(JobStatus status) => _t('status_${status.name}');
 
@@ -277,6 +287,12 @@ class AppStrings {
       'blocked': 'Blocked',
       'noFilesSelected': 'Select at least one file.',
       'skippedFiles': 'Skipped files',
+      'freeSpace': 'Free space',
+      'freeSpaceLabel': 'Free space: {value}',
+      'diskSpaceWarning': 'Low disk space',
+      'diskSpaceWarningBody':
+          'This download needs about {needed}, but only {free} is available. Free some space first, or continue anyway.',
+      'downloadAnyway': 'Download anyway',
       'status_queued': 'Queued',
       'status_probing': 'Analyzing',
       'status_downloading': 'Downloading',
@@ -454,6 +470,12 @@ class AppStrings {
       'blocked': 'محظور',
       'noFilesSelected': 'حدد ملفًا واحدًا على الأقل.',
       'skippedFiles': 'الملفات المتخطاة',
+      'freeSpace': 'المساحة المتاحة',
+      'freeSpaceLabel': 'المساحة المتاحة: {value}',
+      'diskSpaceWarning': 'مساحة القرص منخفضة',
+      'diskSpaceWarningBody':
+          'يحتاج هذا التنزيل إلى نحو {needed}، لكن المتاح {free} فقط. أفرغ مساحة أولًا أو تابع على أي حال.',
+      'downloadAnyway': 'تنزيل على أي حال',
       'status_queued': 'في الانتظار',
       'status_probing': 'جارٍ التحليل',
       'status_downloading': 'جارٍ التنزيل',

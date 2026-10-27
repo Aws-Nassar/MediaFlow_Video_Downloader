@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -33,6 +34,9 @@ class _DriveCollectionSelectionSheetState
     extends State<DriveCollectionSelectionSheet> {
   final Set<int> _selected = {};
   String? _validation;
+  int? _freeBytes;
+  bool _freeSpaceRequested = false;
+  bool _spaceCheckInProgress = false;
 
   List<MediaEntry> get _entries => widget.descriptor.entries;
 
@@ -59,6 +63,21 @@ class _DriveCollectionSelectionSheetState
     }
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_freeSpaceRequested) return;
+    _freeSpaceRequested = true;
+    unawaited(_refreshFreeSpace());
+  }
+
+  Future<void> _refreshFreeSpace() async {
+    final state = MediaFlowScope.of(context);
+    final free = await state.availableDiskBytes();
+    if (!mounted) return;
+    setState(() => _freeBytes = free);
+  }
+
   void _toggle(int index) {
     final entry = _entries[index];
     if (entry.isBlocked) return;
@@ -80,7 +99,8 @@ class _DriveCollectionSelectionSheetState
     });
   }
 
-  void _submit({bool all = false, bool asZip = false}) {
+  Future<void> _submit({bool all = false, bool asZip = false}) async {
+    if (_spaceCheckInProgress) return;
     if (all) _setAll(true);
     if (_selected.isEmpty) {
       setState(
@@ -88,6 +108,36 @@ class _DriveCollectionSelectionSheetState
       );
       return;
     }
+
+    final state = MediaFlowScope.of(context);
+    setState(() => _spaceCheckInProgress = true);
+    int? free;
+    try {
+      free = await state.availableDiskBytes();
+    } catch (_) {
+      free = null;
+    }
+    if (!mounted) return;
+    setState(() {
+      _spaceCheckInProgress = false;
+      _freeBytes = free;
+    });
+    if (_selected.isEmpty) {
+      setState(() => _validation = state.strings.noFilesSelected);
+      return;
+    }
+
+    final total = _selectedBytes;
+    if (total != null && free != null) {
+      // A ZIP keeps staged downloads and the archive until it finishes, so its
+      // peak usage is roughly twice the selected payload.
+      final required = asZip ? total * 2 : total;
+      if (free < required) {
+        final proceed = await _confirmLowSpace(required, free);
+        if (!mounted || !proceed) return;
+      }
+    }
+
     final selection = [
       for (var i = 0; i < _entries.length; i++)
         if (_selected.contains(i)) _entries[i],
@@ -95,6 +145,33 @@ class _DriveCollectionSelectionSheetState
     Navigator.of(
       context,
     ).pop(CollectionSelection(entries: selection, asZip: asZip));
+  }
+
+  Future<bool> _confirmLowSpace(int required, int free) async {
+    final strings = MediaFlowScope.of(context).strings;
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(strings.diskSpaceWarning),
+        content: Text(
+          strings.diskSpaceWarningBody(
+            formatBytes(required),
+            formatBytes(free),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(strings.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(strings.downloadAnyway),
+          ),
+        ],
+      ),
+    );
+    return proceed ?? false;
   }
 
   @override
@@ -108,6 +185,7 @@ class _DriveCollectionSelectionSheetState
       math.max(320.0, 230.0 + _entries.length * 64.0),
     );
     final total = _selectedBytes;
+    final free = _freeBytes;
 
     return Align(
       alignment: Alignment.bottomCenter,
@@ -200,6 +278,21 @@ class _DriveCollectionSelectionSheetState
                             ),
                           ],
                         ),
+                        if (free != null) ...[
+                          const SizedBox(height: 4),
+                          Align(
+                            alignment: AlignmentDirectional.centerEnd,
+                            child: Text(
+                              strings.freeSpaceLabel(formatBytes(free)),
+                              style: TextStyle(
+                                color: total != null && free < total
+                                    ? palette.warning
+                                    : palette.textFaint,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ),
+                        ],
                         if (_validation != null) ...[
                           const SizedBox(height: 6),
                           Text(
@@ -217,13 +310,16 @@ class _DriveCollectionSelectionSheetState
                           runSpacing: 8,
                           children: [
                             TextButton(
-                              onPressed: _downloadableCount == 0
+                              onPressed:
+                                  _downloadableCount == 0 ||
+                                      _spaceCheckInProgress
                                   ? null
                                   : () => _submit(all: true),
                               child: Text(strings.downloadAll),
                             ),
                             OutlinedButton.icon(
-                              onPressed: _selected.isEmpty
+                              onPressed:
+                                  _selected.isEmpty || _spaceCheckInProgress
                                   ? null
                                   : () => _submit(asZip: true),
                               icon: const Icon(
@@ -233,7 +329,10 @@ class _DriveCollectionSelectionSheetState
                               label: Text(strings.downloadAsZip),
                             ),
                             FilledButton(
-                              onPressed: _selected.isEmpty ? null : _submit,
+                              onPressed:
+                                  _selected.isEmpty || _spaceCheckInProgress
+                                  ? null
+                                  : _submit,
                               child: Text(strings.downloadSelected),
                             ),
                           ],

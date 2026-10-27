@@ -148,8 +148,11 @@ public confirmation form, Google-native PDF/XLSX/PPTX exports, the folder
 selection sheet with blocked/skipped rows, and Download as ZIP are implemented
 and covered with recorded HTML and a fake HTTP transport. ZIP files use a
 dependency-free Store/ZIP64 writer, contain only successful downloads, and carry
-per-entry skipped reasons into the batch summary. Size preview, free-space
-warnings, persistence, and manual live acceptance remain.
+per-entry skipped reasons into the batch summary. The sheet shows known totals
+and free space and confirms a low-space start, including the roughly 2x ZIP
+staging peak. The current public folder parser does not obtain per-file sizes, so
+real folder totals remain unavailable. Persistence and manual live acceptance
+remain.
 
 - [ ] Collection probe/expand/select for playlists and folders.
 - [x] Expand parsed collection entries into individual jobs.
@@ -167,7 +170,10 @@ warnings, persistence, and manual live acceptance remain.
   unsupported native types fail with a clear unsupported-link reason.
 - [ ] Full restriction matrix: sign-in required, owner-disabled, policy, quota,
   layout changed. HTTP status and common public error pages are mapped.
-- [ ] Size preview, free-space check, skip/continue.
+- [ ] Size preview for every Drive folder entry; the current parser does not
+  obtain per-file sizes.
+- [x] Free-space display and low-space confirmation for fully known selection
+  totals, including the ZIP staging estimate.
 - [ ] Manual acceptance S-14…S-17, S-20, S-21.
 
 Acceptance:

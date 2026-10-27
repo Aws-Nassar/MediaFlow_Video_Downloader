@@ -132,7 +132,8 @@ fallback, but it is not part of v1.
 
 ## ADR-009 — Android storage
 
-**Status:** Accepted for scaffold; storage implementation pending
+**Status:** Accepted for scaffold; app-specific default implemented, MediaStore/SAF
+pending
 
 **Context:** The rescue app declares `MANAGE_EXTERNAL_STORAGE`; the rebuild must
 not.
@@ -141,6 +142,14 @@ not.
 SAF. For API 24–28, use app-specific external storage + FileProvider, or a
 legacy write permission if a public folder is mandatory. Scaffold `minSdk` is
 24; confirm before release. Never add `MANAGE_EXTERNAL_STORAGE`.
+
+**Implementation note (2026-10-27):** Until MediaStore/SAF lands, Android uses
+`getExternalFilesDir(DIRECTORY_DOWNLOADS)/MediaFlow` with `filesDir` fallback,
+resolved over `MethodChannel('com.mediaflow.app/platform')`. The app requests no
+broad storage permission. The same channel exposes `StatFs` free bytes for the
+Drive selection sheet; Windows uses PowerShell and other desktops use `df -Pk`.
+The Android path and channel are compiled into the debug APK but not yet run on
+a device/emulator.
 
 ## ADR-010 — App location and identity
 
@@ -249,8 +258,11 @@ check. Individual downloads remain the more resumable option.
 **Implementation note (2026-10-27):** The rebuild uses a dependency-free
 Store-method writer in `apps/mediaflow/lib/zip/`; it emits ZIP64 records when
 required, stages successful files in a hidden folder, writes through `.part`,
-and cleans staging on success, failure, and cancellation. Size preview,
-free-space warning, and live Drive acceptance remain pending.
+and cleans staging on success, failure, and cancellation. The selection sheet
+shows known totals and free space and asks for confirmation when the selected
+payload (or roughly twice that for ZIP staging) exceeds free space. The current
+public folder parser does not obtain per-file sizes, so real folder totals and
+numeric warnings remain unavailable. Live Drive acceptance remains pending.
 
 ## ADR-017 — Bundled engine discovery and demo routing
 

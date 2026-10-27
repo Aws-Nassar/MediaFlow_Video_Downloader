@@ -22,6 +22,13 @@ Drive HTTP support:
 - Drive folder selection sheet with per-file checkboxes, select all/none,
   Download selected, Download all, Download as ZIP, and blocked rows that cannot
   be selected.
+- Known selection totals and free space are shown in the sheet. A low-space
+  confirmation appears when the selected payload (or roughly twice that for ZIP
+  staging) exceeds free space.
+- Android defaults to the app-specific external downloads folder
+  (`Android/data/com.mediaflow.app/files/Download/MediaFlow`) through a native
+  method channel; Windows uses `%USERPROFILE%\Downloads\MediaFlow`. No broad
+  storage permission is requested.
 - Folder ZIP/ZIP64 archives built from successful files only. Failed or skipped
   entries keep their item name, link, and localized reason in the batch summary.
 - Unsupported native types and recursion-limit skips are reported in the batch
@@ -79,6 +86,8 @@ tests inject zero-delay fakes and never download anything.
   recursive expansion, ZIP staging/download, and download adapter.
 - `lib/zip/` — dependency-free Store-method ZIP/ZIP64 writer with CRC-32,
   progress, and cancellation.
+- `lib/platform/` — default output directory, free-space probe, and the Android
+  `com.mediaflow.app/platform` method-channel bridge.
 - `lib/engine/ytdlp/` — yt-dlp command, parser, process, and engine bridge.
 - `lib/state/app_state.dart` — in-memory queue, retry, batch summary.
 - `lib/screens/` — Analyze, Queue, Library, Settings.
@@ -91,4 +100,10 @@ tests inject zero-delay fakes and never download anything.
   Arabic; Material widgets such as text-field context menus remain English.
 - Tests use only the fake adapter, a fake Drive HTTP transport, recorded HTML,
   and zero-delay timers. They never use live URLs.
+- The current public folder parser does not obtain per-file sizes, so real
+  folder totals remain unavailable and low-space confirmation only applies when
+  an adapter supplies every selected `sizeBytes`.
+- The Android default-output and free-space channel compiles into the debug APK
+  but has not been run on a device or emulator. MediaStore/SAF output is still
+  pending.
 - The app ID is `com.mediaflow.app`; Android `minSdk` is 24.
