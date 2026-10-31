@@ -11,6 +11,12 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
+from download_support import (
+    DownloadCancelled, describe_error, download_direct, fetch_direct_info,
+    is_direct_url, redact_details, validate_url,
+)
+from drive_folders import download_drive_folder, is_drive_folder, list_drive_folder
 
 def _merge_system_path():
     if sys.platform != "win32":
@@ -72,13 +78,7 @@ class _LazyYtdlp:
         try:
             mod = importlib.import_module("yt_dlp")
         except ImportError:
-            app = QApplication(sys.argv)
-            QMessageBox.critical(
-                None,
-                "Missing Dependency",
-                "yt-dlp is not installed.\n\nRun:\n  pip install yt-dlp",
-            )
-            sys.exit(1)
+            raise RuntimeError("yt-dlp is not installed. Install requirements.txt in the project virtual environment.") from None
         globals()["yt_dlp"] = mod
         return getattr(mod, name)
 
@@ -86,7 +86,7 @@ yt_dlp = _LazyYtdlp()
 
 
 APP_NAME = "MediaFlow Pro"
-VERSION = "2.1"
+VERSION = "2.2"
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_FILE = Path.home() / ".ytflow2_config.json"
 HISTORY_FILE = Path.home() / ".ytflow2_history.json"
@@ -244,36 +244,69 @@ def load_config():
     try:
         if CONFIG_FILE.exists():
             with open(CONFIG_FILE, encoding="utf-8") as f:
-                return {**DEFAULT_CONFIG, **json.load(f)}
-    except Exception:
-        pass
+                stored = json.load(f)
+            if not isinstance(stored, dict):
+                raise ValueError("Settings must be a JSON object")
+            cfg = {**DEFAULT_CONFIG, **stored}
+            for key in ("output_dir", "ffmpeg_path", "cookie_file", "browser_cookies"):
+                if not isinstance(cfg[key], str):
+                    cfg[key] = DEFAULT_CONFIG[key]
+            cfg["max_history"] = max(1, min(10000, int(cfg.get("max_history", 100))))
+            if cfg.get("theme") not in {"dark", "light"}:
+                cfg["theme"] = "dark"
+            return cfg
+    except (OSError, ValueError, TypeError) as exc:
+        _state_warning("Settings could not be read. Defaults are being used; the original file is unchanged.", exc)
     return dict(DEFAULT_CONFIG)
 
 
 def save_config(cfg):
     try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2)
-    except Exception:
-        pass
+        _atomic_json(CONFIG_FILE, cfg)
+    except (OSError, ValueError, TypeError) as exc:
+        _state_warning("Settings could not be saved.", exc)
 
 
 def load_history():
     try:
         if HISTORY_FILE.exists():
             with open(HISTORY_FILE, encoding="utf-8") as f:
-                return json.load(f)
-    except Exception:
-        pass
+                history = json.load(f)
+            if not isinstance(history, list):
+                raise ValueError("History must be a JSON list")
+            return [entry for entry in history if isinstance(entry, dict)]
+    except (OSError, ValueError, TypeError) as exc:
+        _state_warning("History could not be read. The original file is unchanged.", exc)
     return []
 
 
 def save_history(history):
     try:
-        with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(history, f, indent=2)
-    except Exception:
-        pass
+        _atomic_json(HISTORY_FILE, history)
+    except (OSError, ValueError, TypeError) as exc:
+        _state_warning("Download history could not be saved. Your downloaded files are still available.", exc)
+
+
+def _atomic_json(path, value):
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, prefix=path.name, suffix=".tmp", delete=False) as output:
+            temporary = Path(output.name)
+            json.dump(value, output, indent=2)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary and temporary.exists():
+            temporary.unlink(missing_ok=True)
+
+
+def _state_warning(message, error):
+    details = f"{message}\n\n{redact_details(error)}"
+    if QApplication.instance() is not None:
+        QMessageBox.warning(QApplication.activeWindow(), "Local storage problem", details)
+    else:
+        print(details, file=sys.stderr)
 
 
 def fmt_duration(secs):
@@ -297,7 +330,7 @@ def fmt_size(value):
 
 
 def clean_error_text(msg):
-    msg = str(msg).strip()
+    msg = redact_details(msg).strip()
     msg = re.sub(r"\x1b\[[0-9;]*m", "", msg)
     msg = re.sub(r"^ERROR:\s*", "", msg, flags=re.IGNORECASE)
     msg = re.sub(r"\s+", " ", msg)
@@ -305,52 +338,15 @@ def clean_error_text(msg):
 
 
 def classify_error(msg):
-    lower = msg.lower()
-    if "errno 22" in lower or "invalid argument" in lower or "filename" in lower:
-        return (
-            "Windows could not create the output file",
-            "The media title contains characters that are not valid in a Windows filename. "
-            "MediaFlow uses safer filenames; try the download again.",
-            ["Retry the download", "Choose a shorter save folder path", "Update yt-dlp if it continues"],
-        )
-    if "unsupported url" in lower or "no suitable extractor" in lower:
-        return (
-            "This link is not supported",
-            "yt-dlp does not have an extractor for this URL, or the page is not a direct media link.",
-            ["Copy the media post URL", "Check that the post is public"],
-        )
-    if "private" in lower or "login" in lower or "cookies" in lower or "permission" in lower:
-        return (
-            "This media needs access permission",
-            "The site is asking for a logged-in session or the link is private.",
-            ["Select browser cookies in Settings", "Or provide a cookies.txt file", "Confirm the link opens in your browser"],
-        )
-    if "no video" in lower or "not a video" in lower or "requested format is not available" in lower:
-        return (
-            "No downloadable video was found",
-            "The page loaded, but yt-dlp could not find a media stream matching your selected options.",
-            ["Try Audio mode", "Try Best Available", "Confirm the URL points to playable media"],
-        )
-    if "ffmpeg" in lower:
-        return (
-            "FFmpeg is missing or unavailable",
-            "FFmpeg is required for merging streams, extracting audio, and converting formats.",
-            ["Install FFmpeg and add it to PATH", "Or set the FFmpeg folder in Settings"],
-        )
-    if "network" in lower or "timed out" in lower or "connection" in lower:
-        return (
-            "Network problem",
-            "The site did not respond reliably while MediaFlow was fetching the media.",
-            ["Check your connection", "Retry in a moment", "Open the link in your browser"],
-        )
-    return (
-        "Download failed",
-        "MediaFlow could not process this link.",
-        ["Check the URL", "Try cookies for restricted sites", "Try another format or quality"],
-    )
+    failure = describe_error(msg)
+    return failure.title, failure.message, list(failure.actions)
 
 
 def apply_auth_opts(opts, cfg):
+    runtime_name = "deno.exe" if sys.platform == "win32" else "deno"
+    runtime = resource_path(runtime_name) if getattr(sys, "frozen", False) else APP_DIR / "tools" / runtime_name
+    if runtime.is_file():
+        opts["js_runtimes"] = {"deno": {"path": str(runtime)}}
     cookie_file = str(cfg.get("cookie_file", "")).strip()
     if cookie_file:
         opts["cookiefile"] = cookie_file
@@ -454,10 +450,9 @@ def build_ydl_opts(
         "fragment_retries": 5,
         "windowsfilenames": True,
         "trim_file_name": 160,
-        # YouTube throttling fixes
-        "http_chunk_size": 10485760,          # 10 MB chunks — bypasses per-request throttling
-        "throttledratelimit": 102400,          # re-fetch URL if speed drops below 100 KB/s
-        "extractor_args": {"youtube": {"player_client": ["web", "default"]}},
+        "socket_timeout": 25,
+        "continuedl": True,
+        "overwrites": False,
     }
     opts["cachedir"] = False
 
@@ -760,7 +755,7 @@ class DownloadPage(QWidget):
         topbar_layout.setSpacing(4)
         title = QLabel("Smart Download")
         title.setObjectName("pageTitle")
-        subtitle = QLabel("Paste a supported media link and configure your download below")
+        subtitle = QLabel("Videos, audio, playlists, and files — saved on your device")
         subtitle.setObjectName("muted")
         topbar_layout.addWidget(title)
         topbar_layout.addWidget(subtitle)
@@ -778,7 +773,9 @@ class DownloadPage(QWidget):
         root.addWidget(scroll, 1)
 
         self._build_url_card(body_layout)
-        self._build_platform_bar(body_layout)
+        sources = QLabel("YouTube  ·  Facebook  ·  Instagram  ·  direct file links")
+        sources.setObjectName("mutedSmall")
+        body_layout.addWidget(sources)
         self._build_info_card(body_layout)
         self._build_options_card(body_layout)
         self._build_progress_card(body_layout)
@@ -798,7 +795,7 @@ class DownloadPage(QWidget):
         row.setSpacing(10)
         self.url_edit = QLineEdit()
         self.url_edit.setMinimumHeight(42)
-        self.url_edit.setPlaceholderText("Paste YouTube, Facebook, Instagram, Google Drive, Vimeo, SoundCloud...")
+        self.url_edit.setPlaceholderText("Paste a media page or direct file link…")
         self.url_edit.returnPressed.connect(self.fetch_info)
         paste = QPushButton("Paste")
         paste.setObjectName("secondaryButton")
@@ -966,13 +963,16 @@ class DownloadPage(QWidget):
         type_row = QHBoxLayout()
         self.video_radio = QRadioButton("Video")
         self.audio_radio = QRadioButton("Audio")
+        self.file_radio = QRadioButton("Original file")
         self.video_radio.setChecked(True)
         self.type_group = QButtonGroup(self)
         self.type_group.addButton(self.video_radio)
         self.type_group.addButton(self.audio_radio)
-        self.video_radio.toggled.connect(self._on_type_changed)
+        self.type_group.addButton(self.file_radio)
+        self.type_group.buttonClicked.connect(self._on_type_changed)
         type_row.addWidget(self.video_radio)
         type_row.addWidget(self.audio_radio)
+        type_row.addWidget(self.file_radio)
         type_row.addStretch(1)
         layout.addLayout(type_row, 1, 0)
 
@@ -1079,7 +1079,15 @@ class DownloadPage(QWidget):
         return label
 
     def _on_type_changed(self):
-        if self.video_radio.isChecked():
+        file_mode = self.file_radio.isChecked()
+        self.format_combo.setEnabled(not file_mode)
+        self.quality_combo.setEnabled(not file_mode)
+        if file_mode:
+            self.format_combo.clear()
+            self.format_combo.addItem("Original")
+            self.quality_combo.clear()
+            self.quality_combo.addItem("Original")
+        elif self.video_radio.isChecked():
             self.format_combo.clear()
             self.format_combo.addItems(VIDEO_FORMATS)
             self.quality_combo.clear()
@@ -1095,12 +1103,15 @@ class DownloadPage(QWidget):
         self.url_edit.setText(QApplication.clipboard().text().strip())
 
     def log(self, message):
-        self.log_edit.append(f"[{datetime.now().strftime('%H:%M:%S')}]  {message}")
+        self.log_edit.append(f"[{datetime.now().strftime('%H:%M:%S')}]  {redact_details(message)}")
 
     def log_edit_clear(self):
         self.log_edit.clear()
 
     def clear_analysis(self):
+        if self.download_thread is not None and self.download_thread.is_alive():
+            QMessageBox.information(self, "Busy", "Cancel the active download before clearing it.")
+            return
         self.url_edit.clear()
         self.info_title.setText("Paste a link and click Analyse to load media info")
         self.info_meta.setText("")
@@ -1113,6 +1124,7 @@ class DownloadPage(QWidget):
         self.quality_combo.addItems(VIDEO_QUALITIES)
         self.quality_combo.setCurrentIndex(0)
         self.video_radio.setChecked(True)
+        self._on_type_changed()
         self.download_btn.setEnabled(False)
         self.progress.setValue(0)
         self.status_label.setText("Idle - ready to download")
@@ -1210,6 +1222,14 @@ class DownloadPage(QWidget):
         if not url:
             QMessageBox.warning(self, "No URL", "Please paste a media URL first.")
             return
+        try:
+            url = validate_url(url)
+        except ValueError as exc:
+            ErrorDialog(self, str(exc), fetch=True).exec_()
+            return
+        if self.download_thread is not None and self.download_thread.is_alive():
+            QMessageBox.information(self, "Busy", "Wait for the current download to finish.")
+            return
         self._set_thumbnail_placeholder("Preview")
         self._set_feature_options({})
         self.info_title.setText("Analysing media link...")
@@ -1219,16 +1239,29 @@ class DownloadPage(QWidget):
         self.analyse_btn.setText("Analysing...")
         self.log(f"Fetching info: {url}")
         playlist = self.playlist_check.isChecked()
-        threading.Thread(target=self._fetch_worker, args=(url, playlist), daemon=True).start()
+        file_mode = self.file_radio.isChecked() or is_direct_url(url)
+        threading.Thread(target=self._fetch_worker, args=(url, playlist, file_mode), daemon=True).start()
 
-    def _fetch_worker(self, url, playlist):
+    def _fetch_worker(self, url, playlist, file_mode=False):
         try:
+            if is_drive_folder(url):
+                folder = list_drive_folder(url, self.app_window.cfg.get("cookie_file", ""))
+                info = {"title": folder["title"], "entries": folder["entries"], "extractor": "Drive folder",
+                        "_type": "playlist", "formats": [], "is_drive_folder": True}
+                self.signals.info_ready.emit({"info": info, "url": url})
+                return
+            if file_mode:
+                info = fetch_direct_info(url, self.app_window.cfg.get("cookie_file", ""))
+                self.signals.info_ready.emit({"info": info, "url": url})
+                return
             opts = apply_auth_opts(
                 {
                     "quiet": True,
                     "no_warnings": True,
                     "skip_download": True,
                     "noplaylist": not playlist,
+                    "socket_timeout": 25,
+                    "extract_flat": "in_playlist",
                 },
                 self.app_window.cfg,
             )
@@ -1236,7 +1269,7 @@ class DownloadPage(QWidget):
                 info = ydl.extract_info(url, download=False)
             if not info:
                 raise yt_dlp.utils.DownloadError("No media information was returned for this URL.")
-            if not playlist and not info.get("formats") and not info.get("url"):
+            if not playlist and not info.get("formats") and not info.get("url") and info.get("entries") is None:
                 raise yt_dlp.utils.DownloadError("No downloadable video formats were found for this URL.")
             self.signals.info_ready.emit({"info": info, "url": url})
         except Exception as exc:
@@ -1257,6 +1290,13 @@ class DownloadPage(QWidget):
         self.info_title.setText(title)
         self.info_meta.setText("  ·  ".join(parts))
         self._set_feature_options(self._analyze_features(info))
+        if info.get("is_direct_file"):
+            self.file_radio.setChecked(True)
+            self._on_type_changed()
+            self._set_feature_options({})
+        elif info.get("is_drive_folder"):
+            self._set_feature_options({})
+            self.info_meta.setText(f"{len(info.get('entries', []))} items in this folder. Video/Audio mode can save available playback copies; Original file keeps originals only.")
 
         # Repopulate quality combo with only the resolutions this video has.
         if self.video_radio.isChecked():
@@ -1343,6 +1383,11 @@ class DownloadPage(QWidget):
         if self.download_thread is not None and self.download_thread.is_alive():
             QMessageBox.information(self, "Busy", "A download is already in progress.")
             return
+        try:
+            url = validate_url(url)
+        except ValueError as exc:
+            ErrorDialog(self, str(exc)).exec_()
+            return
 
         self.cancel_event.clear()
         self.progress.setValue(0)
@@ -1351,11 +1396,18 @@ class DownloadPage(QWidget):
         self.eta_label.setText("")
         self.download_btn.setEnabled(False)
         self.cancel_btn.setEnabled(True)
+        self.analyse_btn.setEnabled(False)
+        self.url_edit.setEnabled(False)
+        self.type_group.setExclusive(True)
+        for button in self.type_group.buttons():
+            button.setEnabled(False)
 
         ext = self.format_combo.currentText()
         quality = self.quality_combo.currentText()
         is_audio = self.audio_radio.isChecked()
         options = {
+            "drive_folder": is_drive_folder(url),
+            "file_mode": self.file_radio.isChecked() or is_direct_url(url),
             "subs": self.subs_check.isChecked(),
             "embed_thumb": self.thumb_check.isChecked(),
             "sponsor_block": self.sponsor_check.isChecked(),
@@ -1380,7 +1432,7 @@ class DownloadPage(QWidget):
 
         def hook(data):
             if self.cancel_event.is_set():
-                raise yt_dlp.utils.DownloadError("Cancelled by user")
+                raise DownloadCancelled()
             status = data.get("status")
             if status == "downloading":
                 total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
@@ -1396,6 +1448,29 @@ class DownloadPage(QWidget):
                 self.signals.progress.emit(0.99, "Processing / merging...", "", "")
 
         try:
+            if options.get("drive_folder"):
+                self._completed_files = []
+                def save_playback(entry, directory):
+                    saved = []
+                    media_opts = build_ydl_opts(self.app_window.cfg, str(directory), ext, quality, is_audio, hook)
+                    media_opts["post_hooks"] = [saved.append]
+                    with yt_dlp.YoutubeDL(media_opts) as ydl:
+                        ydl.extract_info(entry["url"], download=True)
+                    return [path for path in saved if Path(path).is_file()]
+                paths = download_drive_folder(url, out_dir, hook, self.cancel_event,
+                    self.app_window.cfg.get("cookie_file", ""), on_file=self._completed_files.append,
+                    media_fallback=save_playback if not options.get("file_mode") else None)
+                self.signals.done.emit(f"Drive folder ({len(paths)} files)", url, "folder", False, time.time() - start)
+                return
+            if options.get("file_mode"):
+                path = download_direct(url, out_dir, hook, self.cancel_event, cookie_file=self.app_window.cfg.get("cookie_file", ""))
+                self._completed_files = [path]
+                self.signals.done.emit(Path(path).name, url, Path(path).suffix.lstrip("."), False, time.time() - start)
+                return
+            self._completed_files = []
+            def final_path(filename):
+                if filename and Path(filename).is_file():
+                    self._completed_files.append(filename)
             opts = build_ydl_opts(
                 self.app_window.cfg,
                 out_dir,
@@ -1408,11 +1483,16 @@ class DownloadPage(QWidget):
                 sponsor_block=options["sponsor_block"],
                 playlist=options["playlist"],
             )
+            opts["post_hooks"] = [final_path]
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url)
                 title = (info.get("title") or url) if info else url
+                if not info or not self._completed_files:
+                    raise yt_dlp.utils.DownloadError("The source returned no completed files. Check the output folder for partial downloads.")
             elapsed = time.time() - start
             self.signals.done.emit(title, url, ext, is_audio, elapsed)
+        except DownloadCancelled:
+            self.signals.cancelled.emit()
         except yt_dlp.utils.DownloadError as exc:
             if "Cancelled" in str(exc):
                 self.signals.cancelled.emit()
@@ -1434,13 +1514,15 @@ class DownloadPage(QWidget):
         self.eta_label.setText("")
         self.download_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
+        self._restore_inputs()
         self.log(f'DONE  "{title}"  ({elapsed:.1f}s)')
         self.app_window.add_history(
             {
                 "title": title,
                 "url": url,
                 "ext": ext,
-                "type": "Audio" if is_audio else "Video",
+                "type": "Folder" if is_drive_folder(url) else "File" if self.file_radio.isChecked() else "Audio" if is_audio else "Video",
+                "files": getattr(self, "_completed_files", []),
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
             }
         )
@@ -1450,6 +1532,7 @@ class DownloadPage(QWidget):
         self.status_label.setText("Cancelled")
         self.download_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
+        self._restore_inputs()
         self.log("CANCELLED  Download stopped by user")
 
     def _on_download_error(self, msg):
@@ -1459,12 +1542,19 @@ class DownloadPage(QWidget):
         self.eta_label.setText("")
         self.download_btn.setEnabled(True)
         self.cancel_btn.setEnabled(False)
+        self._restore_inputs()
         self.log(f"ERROR  {clean}")
         ErrorDialog(self, clean, fetch=False).exec_()
 
     def cancel_download(self):
         self.cancel_event.set()
         self.status_label.setText("Cancelling...")
+
+    def _restore_inputs(self):
+        self.analyse_btn.setEnabled(True)
+        self.url_edit.setEnabled(True)
+        for button in self.type_group.buttons():
+            button.setEnabled(True)
 
     def open_folder(self):
         directory = self.app_window.cfg["output_dir"]
@@ -1557,8 +1647,9 @@ class HistoryPage(QWidget):
         self._all = list(history)
         n = len(self._all)
         n_video = sum(1 for item in self._all if item.get("type") == "Video")
-        n_audio = n - n_video
-        self.stats.setText(f"{n} total  ·  {n_video} video(s)  ·  {n_audio} audio file(s)" if n else "No downloads yet")
+        n_audio = sum(1 for item in self._all if item.get("type") == "Audio")
+        n_files = n - n_video - n_audio
+        self.stats.setText(f"{n} total  ·  {n_video} videos  ·  {n_audio} audio  ·  {n_files} files" if n else "No downloads yet")
         self._render()
 
     def _render(self):
@@ -1701,7 +1792,7 @@ class SettingsPage(QWidget):
 
         self.theme_combo = QComboBox()
         self.theme_combo.setMinimumHeight(36)
-        self.theme_combo.addItems(["light", "dark", "neon", "system"])
+        self.theme_combo.addItems(["dark", "light"])
         self.theme_combo.setMaximumWidth(160)
         self.theme_combo.currentTextChanged.connect(self.preview_theme)
         self._add_row(form, row, "Theme", self.theme_combo)

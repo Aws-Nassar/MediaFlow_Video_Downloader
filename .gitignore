@@ -20,15 +20,34 @@ dist/
 *.pyz
 *.manifest
 *.exe
+*.apk
+*.aab
+*.ap_
+*.idsig
+
+# Gradle, Kotlin, and Android machine state
+.gradle/
+.kotlin/
+.cxx/
+.externalNativeBuild/
+local.properties
+*.iml
+
+# Local APK signing material
+*.jks
+*.keystore
+key.properties
+signing.properties
 
 # PyInstaller logs and temporary files
 warn-*.txt
 xref-*.html
 
-# FFmpeg binaries placed in tools\ for bundling — large binaries, not committed
-tools/ffmpeg.exe
-tools/ffprobe.exe
-tools/ffplay.exe
+# Downloaded desktop runtimes (Windows binaries are covered by *.exe)
+/tools/ffmpeg
+/tools/ffprobe
+/tools/ffplay
+/tools/deno
 
 # Local app state
 .ytflow2_config.json
@@ -36,7 +55,7 @@ tools/ffplay.exe
 config.json
 history.json
 
-# Cookie files — may contain sensitive session data
+# Cookie files may contain sensitive session data
 cookies.txt
 *.cookies.txt
 
@@ -63,3 +82,9 @@ htmlcov/
 
 # AI-generated project context (opencode)
 AGENTS.md
+
+# Original sources preserved during migration
+local-backups/
+
+# User-supplied sharing links stay local
+tests/source_urls.txt

@@ -1,178 +1,137 @@
-# MediaFlow Pro
+# MediaFlow
 
-**MediaFlow Pro** is a desktop media downloader for Windows, built with Python, PyQt5, and yt-dlp. It downloads video or audio from YouTube and hundreds of other supported sources — including Facebook, Instagram, TikTok, Vimeo, SoundCloud, Google Drive, Twitch, Reddit, and more.
+Windows EXE and native Kotlin Android APK for media and file downloads. The Android build no longer requires Flutter, Dart, Chaquopy, or a machine-specific Python installation.
 
-> Only download content you have the right to save. Some services require login cookies or public sharing.
+## Build outputs
 
-## Features
+| App | Build output |
+| --- | --- |
+| Windows | `dist/MediaFlow.exe` |
+| Android | `MediaFlow_Mobile/android/app/build/outputs/apk/debug/app-debug.apk` |
 
-| Category | Details |
-|---|---|
-| **Video** | Quality selection (144p → 8K), format choice (mp4, mkv, webm, avi, mov, flv) |
-| **Audio** | Extraction to mp3, m4a, aac, opus, flac, wav, ogg |
-| **Playlists** | Full playlist downloads with ordered filenames |
-| **Subtitles** | Optional subtitle downloads + embedded thumbnails |
-| **SponsorBlock** | Optional SponsorBlock chapter processing |
-| **History** | Download history with search and re-download shortcuts |
-| **Cookies** | Support for cookies.txt or browser-cookie extraction |
-| **Portable** | FFmpeg bundled inside the Windows executable — no separate install for end users |
-| **Platforms** | Windows (.exe), Linux (ELF), Android (.apk) — built automatically via CI on every release tag |
+The current Android APK is also available locally as `dist/MediaFlow-Android.apk`. The Android build script writes to the Gradle output above; it does not refresh this convenience copy. Built packages are ignored by Git. Installed apps do not require development tools.
 
-## Project Structure
+## Current capabilities
 
-```
-.
-├── app.py                      # Main PyQt5 application
-├── assets/                     # App icons (mediaflow.ico, mediaflow.png)
-├── hooks/
-│   └── hook_ffmpeg_path.py     # PyInstaller runtime hook — adds bundled FFmpeg to PATH
-├── tools/
-│   ├── build_exe.ps1           # PowerShell build helper
-│   ├── generate_icon.py        # Icon generation utility
-│   ├── ffmpeg.exe              # ← place FFmpeg binaries here (not committed)
-│   ├── ffprobe.exe             # ← place FFmpeg binaries here (not committed)
-│   └── ffplay.exe              # ← place FFmpeg binaries here (not committed)
-├── MediaFlow.spec              # PyInstaller one-file build spec
-├── requirements.txt            # Runtime dependencies
-├── requirements-dev.txt        # Runtime + build dependencies (includes PyInstaller)
-├── .editorconfig
-├── .gitignore
-└── README.md
-```
+- Video and audio links through yt-dlp: YouTube videos, Shorts and streams; Facebook videos and reels; Instagram with account cookies when required; TikTok, Twitch, Kick, SoundCloud, and other extractors.
+- Original HTTP/HTTPS files, including archives, documents and images. Select **Original file** for links that do not look like ordinary media URLs.
+- GitHub raw files and release assets; GitHub blob links and Dropbox shared files in Original file mode.
+- Public Google Drive folders, including nested folders, original files, and PDF/XLSX/PPTX exports of supported Google documents. When an original video is refused but a playback stream is available, Video/Audio mode can save that stream. Original file mode does not substitute playback copies. Access restrictions still apply.
+- Clean dark and light interfaces. Android retains English and Arabic navigation, RTL, a background download queue, share-to-app, cookie import, Open/Share/Export, and recovery of interrupted jobs.
+- Actionable error categories, bounded retries, cancellation, safe filenames, atomic history storage, and redacted diagnostic details.
 
-## Requirements
+Support depends on the source and the link. An extractor existing is not a guarantee that every post is downloadable. MEGA encrypted shares, WeTransfer share pages, full Dropbox folder traversal, and account-based Drive OAuth are **not implemented** in this first native release.
 
-- **Python 3.10+**
-- **FFmpeg** — required for merging separate video/audio streams, converting formats, and extracting audio
-  - **Windows (source run)**: Install FFmpeg and add its `bin` folder to your system PATH, or set the path in **Settings → FFmpeg Path**
-  - **Windows (built `.exe`)**: FFmpeg is bundled automatically at build time via `tools/*.exe`
-  - **Linux (source run)**: `sudo apt install ffmpeg` (system PATH is used automatically)
-  - **Linux (built binary)**: FFmpeg is bundled automatically if found on PATH during build
-  - Download for Windows: [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases) (`ffmpeg-master-latest-win64-gpl.zip`)
-- Internet access
+See [the project review and validation report](docs/project-review.md) for Git history findings, verified examples, and remaining work. Your local test URLs are in ignored `tests/source_urls.txt`; sharing links are not committed.
 
----
+## Windows
 
-## Run From Source
-
-### Windows
+Run these commands from the repository root. On a new checkout, create the virtual environment first; reuse `.venv` if it already exists:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python app.py
-```
-
-### Linux
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python app.py
-```
-
-If FFmpeg is not on your PATH, open **Settings** and set the **FFmpeg Path** field to the folder containing `ffmpeg`.
-
----
-
-## Build an Executable
-
-The `MediaFlow.spec` is cross-platform: it resolves the FFmpeg binary suffix (`.exe` on Windows, none on Linux) and runtime hook path automatically.
-
-### Windows
-
-Place the three FFmpeg binaries in `tools\`:
-
-```
-tools\ffmpeg.exe
-tools\ffprobe.exe
-tools\ffplay.exe
-```
-
-If they are not in `tools\`, the build falls back to whatever `ffmpeg.exe` is on your system PATH. If FFmpeg is found neither in `tools\` nor on PATH, the executable will still work but require manual FFmpeg configuration in Settings.
-
-```powershell
+py -3 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements-dev.txt
-pyinstaller MediaFlow.spec
+python app.py
 ```
 
-Or use the helper script:
+Activation is optional when using the virtual environment's Python directly:
 
 ```powershell
-.\tools\build_exe.ps1
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe app.py
 ```
 
-Output: `dist\MediaFlow.exe`
+FFmpeg and FFprobe must be available in `tools/`, on PATH, or configured in Settings. YouTube challenge solving also uses Deno; the build helper can obtain it from its official GitHub release.
 
-### Linux
-
-Install system dependencies and build:
-
-```bash
-sudo apt update && sudo apt install -y ffmpeg upx
-source .venv/bin/activate
-pip install -r requirements-dev.txt
-python -m PyInstaller MediaFlow.spec
+```powershell
+.\tools\build_windows.ps1 -InstallDependencies -DownloadRuntime
 ```
 
-Output: `dist/MediaFlow` (ELF binary, no extension)
+Output: `dist/MediaFlow.exe`. FFmpeg, FFprobe, Deno, and yt-dlp EJS data are bundled. The build helper checks required runtimes; portable end users do not install Python.
 
----
+Once the dependencies and runtimes are available, PyInstaller can also be invoked directly:
 
-## Releases
+```powershell
+.\.venv\Scripts\python.exe -m PyInstaller --noconfirm MediaFlow.spec
+```
 
-When a tag matching `v*` is pushed to GitHub, the CI workflow (`.github/workflows/release.yml`) builds and publishes three artifacts:
+The direct command does not download or check required runtimes; use the helper for those checks.
 
-| Artifact | Platform | Runner |
-|----------|----------|--------|
-| `MediaFlow-Windows/MediaFlow.exe` | Windows 10+ | `windows-latest` |
-| `MediaFlow-Linux/MediaFlow` | Linux (x86-64) | `ubuntu-latest` |
-| `MediaFlow-Android/app-debug.apk` | Android (7+) | `ubuntu-latest` (Chaquopy + Gradle) |
+Source runs use `tools/deno.exe` when present. On Linux, install FFmpeg/FFprobe and Deno, install Python requirements, and run `python app.py` or `python -m PyInstaller MediaFlow.spec`.
 
-All three are attached to the GitHub Release automatically.
+Desktop preferences and history remain in `~/.ytflow2_config.json` and `~/.ytflow2_history.json`. They are personal state and are not committed. Updating the engine in a packaged EXE currently requires a rebuild.
 
-## Downloading From Other Sources
+## Android
 
-MediaFlow uses yt-dlp, so source support comes from yt-dlp extractors rather than custom code for each site. Paste a supported URL, click **Analyse**, choose settings, then click **Start Download**.
+Open **MediaFlow_Mobile/android/** in Android Studio, or run:
 
-| Source | Notes |
-|---|---|
-| **YouTube** | Videos, Shorts, playlists, and most public streams |
-| **Facebook / Instagram** | Often need cookies (private/age-gated/login-gated links) |
-| **Google Drive** | Must be publicly shared or shared with your account |
-| **SoundCloud, Vimeo, TikTok, Twitch, Reddit** | Public links usually work; restricted links may need cookies |
+```powershell
+cd MediaFlow_Mobile
+.\build_debug_apk.ps1
+```
 
-To use cookies, open **Settings** and choose either:
-- **Cookie File** — a Netscape-format `cookies.txt` exported from your browser
-- **Use Browser Cookies** — Chrome, Edge, Firefox, Brave, Opera, Vivaldi, or Chromium
+Or use Gradle directly:
 
-## Configuration
+```powershell
+cd MediaFlow_Mobile/android
+.\gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
+```
 
-Settings and history are stored locally in your user profile:
+Output: `MediaFlow_Mobile/android/app/build/outputs/apk/debug/app-debug.apk`.
 
-| File | Purpose |
-|---|---|
-| `%USERPROFILE%\.ytflow2_config.json` | App preferences (theme, output dir, FFmpeg path, etc.) |
-| `%USERPROFILE%\.ytflow2_history.json` | Download history |
+Build prerequisites: JDK 17 or newer, Android SDK platform 36, and internet access for Maven/Gradle dependencies. `JAVA_HOME` and `ANDROID_HOME` can override local discovery. Gradle 8.14, AGP 8.10.1 and Kotlin 2.1.21 are pinned. ARM64 phones and x86_64 emulators are supported; minimum Android is 7.0/API 24. yt-dlp, Python, QuickJS, FFmpeg and FFprobe are supplied by the native Android engine libraries.
 
-These are personal machine state and are not committed to the repository.
+The APK is a directly installable **debug** build. A stable private signing key must be configured separately before publishing production updates. APK signing must match the previous installation to preserve its data during an upgrade.
 
-Both files are shared across **all versions** of MediaFlow on the same machine (whether built locally or downloaded from GitHub Releases). Your download history and preferences are tied to your user account, not to the .exe file.
+Downloads stay in app-specific storage, which is removed on uninstall. Use **History > Export** to save copies elsewhere. Cookies stay in private storage, are excluded from Android backup, and can be removed in Settings. Android tries to import the previous Flutter app's history, theme, language and cookie file when upgraded under the same package and signing key.
 
-## Troubleshooting
+Background jobs use a foreground notification and run outside the UI thread. Android may stop jobs for system resource or background-time limits; interrupted jobs can be retried. Media partials resume where the source permits. Direct files currently restart on Android retry; Windows direct files resume only when server validators and byte ranges match. Cancellation leaves partial files and does not promise a finalized playable live recording.
 
-| Symptom | Fix |
-|---|---|
-| "FFmpeg is missing or unavailable" (source run) | Install FFmpeg and set its path in Settings, or add it to PATH |
-| "FFmpeg is missing or unavailable" (Windows exe) | Rebuild the exe after placing `ffmpeg.exe` in `tools\` |
-| "FFmpeg is missing or unavailable" (Linux binary) | Install ffmpeg via your package manager and rebuild: `sudo apt install ffmpeg` |
-| PyInstaller not found during build | Activate venv first, then `pip install -r requirements-dev.txt` |
-| A site stops working | Update yt-dlp: `python -m pip install -U yt-dlp` |
-| Private or login-required content fails | Enable browser cookies or supply a `cookies.txt` in Settings |
-| Download fails with no clear error | Confirm the URL opens in your browser and try a different quality or format |
-| "Unknown publisher" / Windows SmartScreen warning | This is normal for unsigned PyInstaller executables. Click "More info" → "Run anyway". The app is open-source; inspect the code or build from source if concerned |
-| App takes a long time to start | First launch is slower because yt-dlp registers all site extractors. Subsequent launches are faster. The yt-dlp import is deferred to when you first click "Analyse" |
-| Linux binary says "cannot open shared object file" | Install missing Qt system deps: `sudo apt install libegl1` |
+## Verification
+
+Offline transfer and error checks:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+Create a local `tests/source_urls.txt` with one URL per line (or pass `--input`). Anonymous metadata/folder checks do not download full videos:
+
+```powershell
+.\.venv\Scripts\python.exe tools/check_sources.py
+```
+
+Five-second YouTube/Facebook/TikTok downloads, with FFprobe checking for video and audio:
+
+```powershell
+.\.venv\Scripts\python.exe tools/check_media_downloads.py
+```
+
+Use `tools/check_media_downloads.py --drive-only` to check a playback sample from the last Drive folder in the local input file. These media checks require FFmpeg and FFprobe on PATH and make network requests.
+
+The Android verification helpers require an installed APK on an **isolated emulator** and an ADB executable supplied with `--adb`:
+
+| Helper | Check |
+| --- | --- |
+| `tools/check_native_apk.py` | Synthetic file download with SHA-256 verification |
+| `tools/check_native_media.py` | Short video download while the app is in the background |
+| `tools/check_native_ui.py` | Drive folder preview, light mode, and Arabic navigation |
+
+Reports and sample files are written under ignored `build/`. Automated CI validates local transfers and the Android build. Tag releases continue to build Windows, Linux and Android artifacts using the new native Android paths.
+
+## Project layout and local files
+
+| Path | Purpose |
+| --- | --- |
+| `app.py` | Desktop UI and media download options |
+| `download_support.py` | Direct-file transfers and error classification |
+| `drive_folders.py` | Drive folder discovery and playback fallback |
+| `MediaFlow.spec`, `hooks/` | Desktop packaging and runtime discovery |
+| `MediaFlow_Mobile/android/` | Native Android Gradle project |
+| `tests/`, `tools/` | Offline checks, build helpers, and optional source checks |
+| `docs/project-review.md` | Migration review, validation results, and remaining work |
+
+Keep source, resources, tests, and Gradle wrapper scripts/JAR/properties in version control. Build outputs, downloaded runtimes, caches, machine-specific `local.properties`, signing keys/properties, login cookies, personal app state, migration backups, and the local test URL file are ignored.
+
+Some Gradle cache files were tracked in older commits. Adding ignore rules does not untrack those files or rewrite Git history.

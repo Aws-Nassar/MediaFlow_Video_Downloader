@@ -1,0 +1,26 @@
+<resources>
+    <string name="tagline">احفظ ما يهمك.</string>
+    <string name="downloads">التنزيلات</string><string name="history">السجل</string><string name="settings">الإعدادات</string>
+    <string name="new_download">تنزيل جديد</string><string name="paste_links">ألصق رابطاً، أو أضف عدة روابط في أسطر منفصلة.</string>
+    <string name="clipboard">لصق من الحافظة</string><string name="save_as">حفظ بصيغة</string><string name="max_quality">أعلى جودة للفيديو</string>
+    <string name="whole_playlist">تنزيل قائمة التشغيل كاملة</string><string name="preview">معاينة الرابط</string><string name="enqueue">إضافة إلى التنزيلات</string>
+    <string name="queue">قائمة الانتظار</string><string name="empty_queue">أضف رابطك الأول في الأعلى للبدء.</string>
+    <string name="your_downloads">تنزيلاتك</string><string name="history_help">افتح الملفات أو شاركها أو صدّرها أو أعد المحاولة.</string>
+    <string name="clear_finished">مسح سجل التنزيلات المنتهية</string><string name="clear_question">هل تريد مسح سجل التنزيلات؟</string>
+    <string name="keep_files">ستبقى الملفات المنزلة على جهازك.</string><string name="empty_history">ستظهر التنزيلات المكتملة والمتوقفة هنا.</string>
+    <string name="appearance">المظهر</string><string name="light_mode">الوضع الفاتح</string><string name="language">اللغة</string>
+    <string name="account">الوصول إلى الحساب</string><string name="cookies_ready">تم استيراد ملفات الارتباط</string><string name="no_cookies">لم يتم استيراد ملفات ارتباط</string>
+    <string name="import_cookies">استيراد cookies.txt</string><string name="remove_cookies">حذف ملفات ارتباط الدخول</string>
+    <string name="engine">محرك التنزيل</string><string name="update_engine">تحديث محرك التنزيل</string><string name="saved_files">الملفات المحفوظة</string>
+    <string name="video_mp4">فيديو (MP4)</string><string name="video_mkv">فيديو (MKV)</string><string name="audio_mp3">صوت (MP3)</string><string name="audio_m4a">صوت (M4A)</string>
+    <string name="original_file">الملف الأصلي</string><string name="best">الأفضل</string><string name="cancel">إلغاء</string><string name="clear">مسح</string><string name="keep">إبقاء</string>
+    <string name="retry">إعادة المحاولة</string><string name="open">فتح</string><string name="share">مشاركة</string><string name="export_file">تصدير إلى مجلد…</string>
+    <string name="remove_queue">إزالة من قائمة الانتظار</string><string name="error_details">تفاصيل الخطأ</string><string name="close">إغلاق</string><string name="copy">نسخ</string><string name="details">التفاصيل</string>
+    <string name="choose_file">اختر ملفاً</string><string name="share_download">مشاركة التنزيل</string>
+    <string name="queued">في الانتظار</string><string name="downloading">جارٍ التنزيل</string><string name="completed">مكتمل</string><string name="failed">فشل</string>
+    <string name="cancelled">ملغى</string><string name="interrupted">متوقف</string><string name="processing">جارٍ المعالجة</string><string name="cancelling">جارٍ الإيقاف</string>
+    <string name="checking">جارٍ فحص الرابط…</string><string name="updating">جارٍ التحديث…</string><string name="preview_failed">فشلت المعاينة</string>
+    <string name="invalid_input">تحقق من الرابط أو الإعدادات</string><string name="disk_full">مساحة التخزين ممتلئة</string><string name="network_error">انقطع الاتصال</string>
+    <string name="login_required">يتطلب هذا الرابط تسجيل الدخول</string><string name="access_denied">رفض المصدر الوصول</string><string name="unavailable">الرابط غير متاح</string>
+    <string name="failed_title">فشل التنزيل</string>
+</resources>

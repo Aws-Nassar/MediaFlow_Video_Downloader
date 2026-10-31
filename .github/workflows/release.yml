@@ -17,7 +17,11 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
 
       - name: Download FFmpeg
         shell: pwsh
@@ -59,40 +63,26 @@ jobs:
           java-version: '17'
           distribution: temurin
 
-      - name: Set up Android SDK & NDK
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
           accept-licenses: true
 
-      - name: Install NDK
-        run: sdkmanager "ndk;27.0.12077973" --sdk_root=$ANDROID_SDK_ROOT
+      - uses: gradle/actions/setup-gradle@v4
 
-      - name: Set up Python 3.14
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.14'
-          allow-prereleases: true
-
-      - name: Resolve Python path for Chaquopy
-        id: python-path
-        run: |
-          PYTHON=$(which python)
-          echo "path=$PYTHON" >> $GITHUB_OUTPUT
-          echo "Found Python at: $PYTHON"
-          python --version
+      - name: Install Android platform
+        run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
 
       - name: Build debug APK
-        working-directory: Videos_Downloader_Mobile
+        working-directory: MediaFlow_Mobile/android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --stacktrace
-        env:
-          CHAQUOPY_BUILD_PYTHON: ${{ steps.python-path.outputs.path }}
+          ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon
 
       - uses: actions/upload-artifact@v4
         with:
           name: MediaFlow-Android
-          path: Videos_Downloader_Mobile/app/build/outputs/apk/debug/app-debug.apk
+          path: MediaFlow_Mobile/android/app/build/outputs/apk/debug/app-debug.apk
 
   build-linux:
     name: Build Linux binary
@@ -103,6 +93,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
 
       - name: Install system dependencies
         run: |
@@ -129,15 +123,35 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
 
-      - name: Display structure
-        run: ls -R
+      - name: Prepare release assets
+        run: |
+          mv MediaFlow-Android/app-debug.apk MediaFlow-Android/MediaFlow-Android.apk
+          mv MediaFlow-Linux/MediaFlow MediaFlow-Linux/MediaFlow-Linux
+          sha256sum MediaFlow-Windows/MediaFlow.exe MediaFlow-Linux/MediaFlow-Linux MediaFlow-Android/MediaFlow-Android.apk | sed 's|  [^ ]*/|  |' > SHA256SUMS.txt
+
+      - name: Find release notes
+        id: notes
+        run: |
+          notes="docs/releases/${GITHUB_REF_NAME}.md"
+          if [ -f "$notes" ]; then
+            echo "path=$notes" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             MediaFlow-Windows/MediaFlow.exe
-            MediaFlow-Linux/MediaFlow
-            MediaFlow-Android/app-debug.apk
-          generate_release_notes: true
+            MediaFlow-Linux/MediaFlow-Linux
+            MediaFlow-Android/MediaFlow-Android.apk
+            SHA256SUMS.txt
+          name: MediaFlow ${{ github.ref_name }}
+          body_path: ${{ steps.notes.outputs.path }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}
+          fail_on_unmatched_files: true
+          overwrite_files: false
+          generate_release_notes: ${{ steps.notes.outputs.path == '' }}

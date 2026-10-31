@@ -3,10 +3,13 @@
 import shutil
 import sys
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_all
 
 project_dir = Path(SPECPATH)
 icon_path = project_dir / "assets" / "mediaflow.ico"
 asset_datas = []
+ejs_datas, ejs_binaries, ejs_imports = collect_all("yt_dlp_ejs")
+asset_datas.extend(ejs_datas)
 if icon_path.exists():
     asset_datas.append((str(icon_path), "assets"))
 png_icon_path = project_dir / "assets" / "mediaflow.png"
@@ -19,9 +22,9 @@ if png_icon_path.exists():
 #   1. tools\ subfolder next to this spec file  (recommended – put them there)
 #   2. Anywhere on the system PATH
 # ---------------------------------------------------------------------------
-binaries = []
+binaries = list(ejs_binaries)
 ffmpeg_suffix = ".exe" if sys.platform == "win32" else ""
-ffmpeg_names = [f"ffmpeg{ffmpeg_suffix}", f"ffprobe{ffmpeg_suffix}", f"ffplay{ffmpeg_suffix}"]
+ffmpeg_names = [f"ffmpeg{ffmpeg_suffix}", f"ffprobe{ffmpeg_suffix}"]
 tools_dir = project_dir / "tools"
 for name in ffmpeg_names:
     candidate = tools_dir / name
@@ -32,12 +35,19 @@ for name in ffmpeg_names:
         if found:
             binaries.append((found, "."))
 
+# YouTube JavaScript challenge solving also needs a runtime in portable builds.
+runtime_name = "deno.exe" if sys.platform == "win32" else "deno"
+runtime_path = tools_dir / runtime_name
+runtime_source = str(runtime_path) if runtime_path.is_file() else shutil.which(runtime_name)
+if runtime_source:
+    binaries.append((runtime_source, "."))
+
 a = Analysis(
     ["app.py"],
     pathex=[str(project_dir)],
     binaries=binaries,
     datas=asset_datas,
-    hiddenimports=["yt_dlp", "PyQt5.sip"],
+    hiddenimports=["yt_dlp", "PyQt5.sip", *ejs_imports],
     hookspath=[],
     hooksconfig={},
     # Prepends _MEIPASS to PATH so bundled ffmpeg.exe is found automatically
